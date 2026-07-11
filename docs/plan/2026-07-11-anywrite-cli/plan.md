@@ -281,7 +281,37 @@ Does NOT hand-roll any endpoint-specific branch that a registry flag could expre
 
 ## Progress log
 
-(appended by executors)
+**Phase 1 — Scaffold + types + config (2026-07-11).** Created `package.json` (type: module,
+zero runtime deps, devDeps `@biomejs/biome@2.5.3`, `@types/bun@1.3.14`,
+`openapi-typescript@7.13.0`, `typescript@5.9.3`), `tsconfig.json` (strict, bundler resolution,
+`bun-types`), `biome.jsonc` (recommended preset + organizeImports assist, standalone — no
+`ultracite` dependency since only the three approved devDeps are in scope), `.gitignore`
+(`node_modules`/`dist` ignored, `bun.lock` committed), and `justfile` (`build`/`test`/`check`/
+`codegen`/`clean`, each depending on `install` so `just <target>` is the only command the user
+ever runs). Generated `src/types/api.d.ts` via `openapi-typescript` against the vendored
+`spec/openapi-2025-11-08.yaml` (5591 lines, header comment already present from the generator —
+never hand-edited). Implemented `src/auth.ts`'s config-load half: `loadConfig()` with precedence
+env `ANYTYPE_API_KEY`/`ANYTYPE_BASE_URL` → `~/.anywrite/config.json` → `~/.anytype-cli/config.yaml`
+(five-line YAML parser, two keys only, no yaml dependency), defaulting to
+`http://localhost:31009`; `saveConfig()` for Phase 2's auth flow to call. Both accept injectable
+`env`/`ConfigPaths` params so `src/__tests__/auth.test.ts` is fully hermetic — 5 tests using
+`mkdtempSync` fixtures, never touching the real `~/.anytype-cli/config.yaml` or printing a real
+key. `src/output.ts` has `printJson`/`printError`. `src/cli.ts` is the placeholder entry (empty
+main, prints a stub message) solely so `just build` compiles; Phase 4 replaces it.
+
+Deviation from the brief: pinned `typescript` to `^5.9.3` instead of latest. `bunx tsc --version`
+resolves to `7.0.2` by default (the new Go-native TypeScript rewrite), which breaks
+`openapi-typescript@7.13.0` — it imports `ts.factory` from the classic compiler API
+(`ts.factory.createKeywordTypeNode` is `undefined` on 7.x) and openapi-typescript's own
+`peerDependencies` declares `typescript: ^5.x`. Codegen only succeeds on 5.x; `tsc --noEmit` is
+unaffected either way, so 5.9.3 (latest stable 5.x) is used for both.
+
+Verification: `bunx tsc --noEmit` clean, `bunx biome check` clean (0 errors after two safe
+autofixes — import ordering + one format line), `bun test` 5/5 pass, `just build` produces
+`dist/anywrite` (54.9M Mach-O arm64 binary) and running it prints the placeholder stub. `just
+check`/`just test`/`just build` all verified end-to-end through the justfile interface, not the
+raw bun commands. `git status` confirms `dist/` and `node_modules/` are gitignored (not
+untracked) ahead of commit.
 
 ## Review findings
 
