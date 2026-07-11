@@ -366,6 +366,54 @@ recorded in research.md. Honesty buckets: unit tests are `SHIPPED-UNVERIFIED` pr
 phase, not against a real file upload or a real chat stream — that live coverage is Phase 5's
 smoke matrix.
 
+---
+
+**Phase 3 — Endpoint registry, 52 entries (2026-07-11).** Created `src/registry.ts`: the
+`EndpointSpec` type (`method`, `path`, `pathParams` in path order, optional `queryParams`/
+`bodyParams` as flat `ParamSpec[]`, `required` field-name list, `bodyField` for the
+create-vs-update `body`/`markdown` asymmetry, `quirks` — `multipart`/`binary`/`sse`/
+`wrappedArray` — `pagination`, `viewIdOptional`, and `auth: false` for the two unauthenticated
+auth endpoints) plus `ENDPOINTS: Record<resource, Record<action, EndpointSpec>>` with all 52
+operations grouped under the 12 spec tags as resources (auth, search, spaces, chat, files,
+lists, members, objects, properties, tags, templates, types). Every method/path/pathParams/
+required-field/quirk value was cross-checked against `spec/openapi-2025-11-08.yaml` directly
+(operationId, path parameters, and named request-schema fields — `CreateObjectRequest`,
+`UpdateObjectRequest`, `CreateSpaceRequest`, `AddChatMessageRequest`, `EditChatMessageRequest`,
+`ToggleReactionRequest`, `ReadChatMessagesRequest`, `ReadChatReactionsRequest`,
+`CreatePropertyRequest`/`CreateTagRequest`/`CreateTypeRequest` and their `Update*` counterparts,
+`AddObjectsToListRequest`, `SearchRequest`), not inferred from the research doc alone. Chat
+action names follow the brief's CLI-typed verbs exactly: `list`, `create`, `messages`, `send`,
+`edit`, `delete-message`, `search`, `stream`, `read`, `read-all`, `toggle-reaction`,
+`get-message`, `reactions-read` (13 total). `bodyParams` intentionally stays flat per the
+brief's "flat named body fields" scope — nested oneOf shapes (`icon`, `filters`, `sort`,
+`properties[]` PropertyLinkWithValue) are left out of the registry and go through the CLI's raw
+`--json` escape hatch in Phase 4, not through typed flags here.
+
+Created `src/__tests__/registry.test.ts`, which parses the vendored spec at runtime (not a
+hardcoded list) and asserts full bidirectional coverage: every `(method, path)` pair in the spec
+has exactly one registry entry and vice versa (52/52, zero missing, zero extra), plus a
+duplicate-pair check and the six quirk spot-checks named in the brief's success criteria
+(`files.upload`=multipart, `files.download`=binary, `chat.stream`=sse, `lists.add`=wrappedArray,
+`chat.messages`=cursor pagination, `objects.create`/`objects.update` bodyField `body`/
+`markdown`).
+
+Deviation from the brief (permitted, logged per the brief's own guidance): added `yaml@2.9.0` as
+an explicit devDependency for the spec parser, rather than importing the `js-yaml` that
+`openapi-typescript` already pulls in transitively. `js-yaml` is hoisted into `node_modules` and
+would have worked, but it's undeclared in `package.json` — relying on an untracked transitive
+dependency is fragile (a future lockfile change could silently remove it) and violates "declare
+what you use." `bun add -d yaml` updated `package.json` and `bun.lock` only; no other dependency
+versions changed.
+
+Verification: `bunx tsc --noEmit` clean, `bunx biome check` clean (0 errors, no autofixes
+needed), `bun test` 34/34 pass (5 from Phase 1's `auth.test.ts` + 20 from Phase 2's
+`client.test.ts`, both unaffected + 9 new in `registry.test.ts`). Final entry count per
+resource: auth 2, search 2, spaces 4, chat 13, files 3, lists 4, members 2, objects 5,
+properties 5, tags 5, templates 2, types 5 — sums to 52. Honesty bucket: `SHIPPED-UNVERIFIED` —
+this phase is pure data plus a spec-parity test; no live HTTP calls were made or needed. The
+registry's real-world correctness (does the CLI actually dispatch through it against the live
+API) is proven in Phase 4/5, not here.
+
 ## Review findings
 
 (filled at od-finish)
