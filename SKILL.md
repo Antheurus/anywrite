@@ -130,7 +130,42 @@ anywrite chat stream <space> <chat_id> --follow        # SSE, one JSON line per 
 # auth
 anywrite auth --status
 anywrite auth --code 1234
+
+# verify (composite client-side check, not a single API endpoint — see below)
+anywrite verify <space> <object_id...> --property status="To Do"
 ```
+
+## Verify
+
+`anywrite verify <space> <object_id...> [--property key=value ...] [--pretty]` re-fetches each
+object id and reports whether it exists and (optionally) whether specific properties hold the
+expected values. Use it after a batch `objects create`/`objects update` to confirm the mutation
+actually landed, instead of eyeballing raw JSON or hand-writing a throwaway parsing script.
+
+```bash
+anywrite verify Antheurus bafyobj1 bafyobj2 --property status="To Do" --pretty
+```
+
+Output is a JSON array (or `--pretty` table), one entry per object id:
+
+```json
+[
+  {
+    "id": "bafyobj1",
+    "name": "Fitur KPI Staff",
+    "found": true,
+    "error": null,
+    "propertyChecks": [{ "key": "status", "expected": "To Do", "actual": "To Do", "pass": true }],
+    "pass": true
+  }
+]
+```
+
+`--property` is repeatable and checks any property by key (select/multi_select unwrap to tag
+name(s); other formats read their own field). Exits 1 if any object is missing or fails a
+property check — script/CI-friendly. A fetch failure (unknown id, network error) is captured as
+`found: false` with `error` set, never a thrown exception, so a batch of ids always finishes and
+reports every outcome.
 
 ## Gotchas (all live-verified against the running Anytype desktop)
 

@@ -143,6 +143,27 @@ step "object set status via --status \"To Do\""
 run_cli object-status objects update "$SPACE" "$OBJ_ID" --status "To Do"
 sleep 0.3
 
+step "verify: object exists and status matches (positive case)"
+run_cli verify-object-ok verify "$SPACE" "$OBJ_ID" --property status="To Do"
+assert_json "verify reports found:true, pass:true for the smoke task" verify-object-ok \
+  "d[0]['found'] is True and d[0]['pass'] is True"
+sleep 0.3
+
+step "verify: property mismatch is reported as pass:false, not silently ignored"
+# Intentional non-zero exit (verify exits 1 when any object fails) — bypass run_cli's strict
+# failure check with a direct invocation, same pattern as auth --status above.
+"$BIN" verify "$SPACE" "$OBJ_ID" --property status="Done" \
+  >"$WORKDIR/verify-object-mismatch.json" 2>"$WORKDIR/verify-object-mismatch.err" || true
+assert_json "verify reports pass:false and the actual value when status does not match" \
+  verify-object-mismatch "d[0]['pass'] is False and d[0]['propertyChecks'][0]['actual'] == 'To Do'"
+sleep 0.3
+
+step "verify: unknown object id is reported as found:false, not a crash"
+"$BIN" verify "$SPACE" "bafyreiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+  >"$WORKDIR/verify-object-missing.json" 2>"$WORKDIR/verify-object-missing.err" || true
+assert_json "verify reports found:false for a bogus id" verify-object-missing "d[0]['found'] is False"
+sleep 0.3
+
 step "object get shows name + markdown + status"
 run_cli object-get-before-delete objects get "$SPACE" "$OBJ_ID"
 assert_json "object name updated" object-get-before-delete \

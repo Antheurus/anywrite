@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.0 — Verify command
+
+- New `anywrite verify <space> <object_id...> --property key=value` command — re-checks that
+  objects you already created or updated actually exist and have the values you expect, so you
+  don't have to eyeball raw JSON or write a one-off script to double-check a batch of changes.
+- Reports a clear pass/fail per object (`--pretty` for a table), and exits with an error code if
+  anything doesn't match — safe to use in scripts.
+
 ## v0.1.0 — Initial release
 
 - Full command-line control of Anytype (the local-first PKM/notes app) — spaces, objects,

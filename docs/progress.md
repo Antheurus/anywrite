@@ -1,5 +1,44 @@
 # anywrite Progress
 
+## Session — 2026-07-12 — v0.2.0 (verify command)
+
+Added `anywrite verify <space> <object_id...> [--property key=value ...] [--pretty]`, a
+composite client-side check that re-fetches each object id and confirms it exists plus that
+given properties match expected values. Root cause for building this: a live session used a
+hand-rolled throwaway Python script to double-check that a batch of `objects create` calls
+landed correctly (8 tasks pushed into Anytype after moving off the built-in task tracker), and
+that script had an index-arithmetic bug in its own JSON-stream parser that threw after
+successfully printing all 8 results — the *creates* were fine, the ad-hoc verification tooling
+wasn't. `verify` replaces that class of throwaway script with a real, tested command.
+
+Shape follows the existing composite-command precedent (`auth`): not a single Anytype API
+endpoint, so it's special-cased in `cli.ts`'s `run()` dispatch rather than added to the
+`registry.ts` endpoint table, which stays reserved for real HTTP operations only. New module
+`src/verify.ts` holds the pure logic — `readPropertyValue()` (unwraps `select`/`multi_select`/
+scalar property shapes off an object's `properties` array), `verifyObject()` (one GET + property
+comparison, never throws — a fetch failure becomes `found: false` with `error` set so a batch
+always finishes), and `verifyObjects()` (sequential batch runner). `cli.ts` gained
+`runVerifyCommand()`/`formatVerifyHelp()` and a `first === 'verify'` branch alongside the
+existing `auth` branch; `formatTopHelp()` now lists both composite commands.
+
+Added 11 unit tests in `src/__tests__/verify.test.ts` (property-shape unwrapping, pass/fail/
+missing-id cases, never-throws-on-fetch-failure, batch ordering) plus one `cli.test.ts` check
+that `formatTopHelp()` lists `verify`. Live-verified against the real running Anytype desktop
+(space "Antheurus") both ad hoc — create a throwaway task, verify a matching status (pass:true,
+exit 0), verify a deliberately wrong expected status (pass:false, exit 1, `actual` shows the
+real value), verify a nonexistent id (found:false, exit 1) — and folded three matching steps
+into `scripts/smoke.sh`'s permanent object-lifecycle section (between "set status" and "get
+shows status"), so regression coverage for `verify` now runs on every `just smoke`.
+
+Verified this session: `bun test` 84/84 pass (up from 69), `tsc --noEmit` clean, `biome check`
+clean after one auto-format pass, `bun run build` produces a working `dist/anywrite`, and
+`scripts/smoke.sh` 36/36 live steps green (up from 33) against the real Anytype desktop.
+Updated `SKILL.md` (new "Verify" section + quick-reference line) and `README.md` (usage
+example) so the command is discoverable without reading source. Version bumped 0.1.0 → 0.2.0
+(new capability, not a fix). No breaking changes — every existing resource/action is untouched.
+
+---
+
 ## Session — 2026-07-11 — v0.1.0 (initial build)
 
 Built `anywrite` from scratch across six phases, orchestrated: a Bun/TypeScript CLI, compiled

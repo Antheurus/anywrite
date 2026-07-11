@@ -30,6 +30,7 @@ import {
   resolveTypeId,
   UsageError,
 } from './resolve.ts';
+import { verifyObjects } from './verify.ts';
 
 type FlagMap = Map<string, string[]>;
 type QueryValues = Record<string, string | number | boolean | undefined>;
@@ -463,6 +464,7 @@ export function formatTopHelp(): string {
     'Resources:',
     ...RESOURCES.map((resource) => `  ${resource}`),
     '  auth               anywrite auth [--code <code>] [--status]',
+    '  verify             anywrite verify <space> <object_id...> [--property key=value] [--pretty]',
     '',
     'Run `anywrite <resource> --help` to see actions and flags for a resource.',
     '',
@@ -596,6 +598,57 @@ async function runAuthCommand(argv: string[]): Promise<void> {
   process.stdout.write('Saved API key to ~/.anywrite/config.json\n');
 }
 
+// -- verify subcommand ----------------------------------------------------------------------
+
+function formatVerifyHelp(): string {
+  return [
+    'anywrite verify <space> <object_id...> [flags]',
+    '',
+    'Re-fetches each object id and reports whether it exists and (optionally) whether its',
+    'properties match expected values. A composite client-side check (N GETs), not a single',
+    'API endpoint — exits 1 if any object is missing or fails a property check.',
+    '  --property key=value   repeatable; asserts the object property (by key) equals value',
+    '  --pretty                render a table instead of raw JSON',
+  ].join('\n');
+}
+
+async function runVerifyCommand(argv: string[]): Promise<void> {
+  const { positionals, flags } = parseFlags(argv);
+  if (hasFlag(flags, 'help')) {
+    process.stdout.write(`${formatVerifyHelp()}\n`);
+    return;
+  }
+  const [spaceArg, ...objectIds] = positionals;
+  if (spaceArg === undefined) {
+    throw new UsageError('missing positional argument: space');
+  }
+  if (objectIds.length === 0) {
+    throw new UsageError('missing positional argument(s): object_id...');
+  }
+
+  const runtimeConfig = loadConfig();
+  if (runtimeConfig.apiKey === null) {
+    throw new UsageError('not authenticated — run `anywrite auth` first');
+  }
+  const config: ClientConfig = { baseUrl: runtimeConfig.baseUrl, apiKey: runtimeConfig.apiKey };
+  const spaceId = await resolveSpaceId(config, spaceArg);
+
+  const expectedProperties: Record<string, string> = {};
+  for (const raw of getFlagValues(flags, 'property')) {
+    const separatorIndex = raw.indexOf('=');
+    if (separatorIndex === -1) {
+      throw new UsageError(`--property must be "key=value", got "${raw}"`);
+    }
+    expectedProperties[raw.slice(0, separatorIndex)] = raw.slice(separatorIndex + 1);
+  }
+
+  const results = await verifyObjects(config, spaceId, objectIds, expectedProperties);
+  emit(results, flags);
+  if (results.some((result) => !result.pass)) {
+    process.exitCode = 1;
+  }
+}
+
 // -- generic dispatch -----------------------------------------------------------------------
 
 export async function dispatch(resource: string, action: string, argv: string[]): Promise<void> {
@@ -684,6 +737,10 @@ async function run(argv: string[]): Promise<void> {
   }
   if (first === 'auth') {
     await runAuthCommand(rest);
+    return;
+  }
+  if (first === 'verify') {
+    await runVerifyCommand(rest);
     return;
   }
 

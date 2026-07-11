@@ -165,6 +165,11 @@ describe('help text is generated from the registry', () => {
     expect(() => formatResourceHelp('not-a-resource')).toThrow(UsageError);
   });
 
+  test('formatTopHelp lists the verify composite command alongside auth', () => {
+    const help = formatTopHelp();
+    expect(help).toContain('verify             anywrite verify <space>');
+  });
+
   test('objects create/update documents the --type alias alongside --type_key', () => {
     const help = formatResourceHelp('objects');
     expect(help).toContain('--type <type key|name>');
