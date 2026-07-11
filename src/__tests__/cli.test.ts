@@ -1,16 +1,44 @@
 import { describe, expect, test } from 'bun:test';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   buildBody,
   buildQuery,
   castParamValue,
+  dispatch,
   flagNamesFor,
   formatResourceHelp,
   formatTopHelp,
   parseFlags,
   RESOURCES,
 } from '../cli.ts';
+import type { FetchLike } from '../client.ts';
 import { ENDPOINTS } from '../registry.ts';
 import { UsageError } from '../resolve.ts';
+
+/** dispatch() reads config via loadConfig() (env-first), and the wrapped `request()` falls back
+ * to the global `fetch` when no fetchImpl is injected — so these two stubs are how dispatch's
+ * request-shaping logic gets exercised without hitting the network or a real API key. */
+function stubApiKeyEnv(): () => void {
+  const original = process.env.ANYTYPE_API_KEY;
+  process.env.ANYTYPE_API_KEY = 'test-key';
+  return () => {
+    if (original === undefined) {
+      delete process.env.ANYTYPE_API_KEY;
+    } else {
+      process.env.ANYTYPE_API_KEY = original;
+    }
+  };
+}
+
+function stubFetch(handler: FetchLike): () => void {
+  const original = globalThis.fetch;
+  globalThis.fetch = handler as typeof fetch;
+  return () => {
+    globalThis.fetch = original;
+  };
+}
 
 describe('parseFlags', () => {
   test('splits positionals from --flag value pairs', () => {
@@ -135,5 +163,74 @@ describe('help text is generated from the registry', () => {
 
   test('formatResourceHelp throws UsageError for an unknown resource', () => {
     expect(() => formatResourceHelp('not-a-resource')).toThrow(UsageError);
+  });
+
+  test('objects create/update documents the --type alias alongside --type_key', () => {
+    const help = formatResourceHelp('objects');
+    expect(help).toContain('--type <type key|name>');
+  });
+});
+
+describe('dispatch — request shaping (mocked fetch)', () => {
+  test('binary quirk (files download) threads binary:true through to request', async () => {
+    const restoreApiKey = stubApiKeyEnv();
+    const bytes = new Uint8Array([1, 2, 3, 4]).buffer;
+    const restoreFetch = stubFetch(
+      async () =>
+        new Response(bytes, {
+          status: 200,
+          headers: { 'content-type': 'application/octet-stream' },
+        }),
+    );
+    const outputPath = join(tmpdir(), `anywrite-cli-test-${Date.now()}.bin`);
+    try {
+      await dispatch('files', 'download', ['bafyspace', 'bafyfile', '--output', outputPath]);
+      const written = await Bun.file(outputPath).arrayBuffer();
+      expect(new Uint8Array(written)).toEqual(new Uint8Array(bytes));
+    } finally {
+      restoreFetch();
+      restoreApiKey();
+      await rm(outputPath, { force: true });
+    }
+  });
+
+  test('POST endpoint with all-optional bodyParams and no flags sends {} as the body', async () => {
+    const restoreApiKey = stubApiKeyEnv();
+    let seenRequest: Request | undefined;
+    const restoreFetch = stubFetch(async (input, init) => {
+      seenRequest = new Request(input as string, init);
+      return new Response(JSON.stringify({ data: [], pagination: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    try {
+      await dispatch('search', 'global', ['--limit', '3']);
+      expect(seenRequest?.method).toBe('POST');
+      expect(await seenRequest?.text()).toBe('{}');
+    } finally {
+      restoreFetch();
+      restoreApiKey();
+    }
+  });
+
+  test('GET endpoint sends no body even when bodyParams would be empty', async () => {
+    const restoreApiKey = stubApiKeyEnv();
+    let seenRequest: Request | undefined;
+    const restoreFetch = stubFetch(async (input, init) => {
+      seenRequest = new Request(input as string, init);
+      return new Response(JSON.stringify({ data: [], pagination: {} }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    try {
+      await dispatch('spaces', 'list', []);
+      expect(seenRequest?.method).toBe('GET');
+      expect(seenRequest?.body).toBeNull();
+    } finally {
+      restoreFetch();
+      restoreApiKey();
+    }
   });
 });

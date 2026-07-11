@@ -400,7 +400,7 @@ async function runBinaryDownload(
   if (outputPath === undefined) {
     throw new UsageError('this endpoint returns binary data — pass --output <path>');
   }
-  const result = await request(config, { method: spec.method, path, query });
+  const result = await request(config, { method: spec.method, path, query, binary: true });
   if (result.kind !== 'binary') {
     throw new Error('expected a binary response');
   }
@@ -491,6 +491,7 @@ export function formatActionHelp(resource: string, action: string, spec: Endpoin
     lines.push('  --all (paginate the full result set)');
   }
   if (resource === 'objects' && (action === 'create' || action === 'update')) {
+    lines.push('  --type <type key|name>       alias for --type_key');
     lines.push('  --status <tag name|key|id>   shortcut for the "status" select property');
     lines.push('  --property key=value         repeatable, sets any property by key/name');
     lines.push('  --icon <emoji>               sets an emoji icon; omitted entirely when unset');
@@ -588,7 +589,7 @@ async function runAuthCommand(argv: string[]): Promise<void> {
 
 // -- generic dispatch -----------------------------------------------------------------------
 
-async function dispatch(resource: string, action: string, argv: string[]): Promise<void> {
+export async function dispatch(resource: string, action: string, argv: string[]): Promise<void> {
   const actions = ENDPOINTS[resource];
   if (!actions) {
     throw new UsageError(
@@ -648,11 +649,15 @@ async function dispatch(resource: string, action: string, argv: string[]): Promi
     return;
   }
 
+  // POST/PATCH always send the body object, even empty ({}) — some endpoints (e.g. search with
+  // no filters) treat a missing body as a malformed request rather than "no filters". GET/DELETE
+  // never send a body when there's nothing to send.
+  const sendsBody = spec.method === 'POST' || spec.method === 'PATCH';
   const result = await request(config, {
     method: spec.method,
     path,
     query,
-    body: Object.keys(body).length > 0 ? body : undefined,
+    body: sendsBody ? body : Object.keys(body).length > 0 ? body : undefined,
   });
   if (result.kind === 'json') {
     emit(result.data, flags);
