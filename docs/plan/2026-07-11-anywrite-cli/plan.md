@@ -543,6 +543,123 @@ multipart quirk handlers and the auth challenge flow are `SHIPPED-UNVERIFIED` �
 and type-checks against the client's documented contracts but has not been driven against a real
 stream/file/challenge this phase.
 
+---
+
+**Phase 5 — Compile + live smoke test (2026-07-11).** Created `scripts/smoke.sh`: a bash
+script (`set -euo pipefail`) that runs every command against the **compiled** `./dist/anywrite`
+binary (not `bun run`) in space "Antheurus", asserting on real post-state after each step via a
+`python3 -c` JSON assertion helper (never `jq`/`sed`/`awk`), sleeping 300ms between mutations,
+and printing one `PASS`/`FAIL` line per step with a non-zero exit on the first failure. Every
+throwaway it creates (property, tag, type, task object, note objects, an uploaded file) registers
+a delete/archive command in a LIFO cleanup array that runs in an `EXIT` trap, so a mid-run failure
+still cleans up everything created up to that point. Wired `just smoke: build` so the only
+interface is `just smoke` (rebuilds first, then runs). No fix loop was needed — the CLI worked
+correctly against the live API on the first full run; `scripts/smoke.sh` and the `justfile`
+addition are the only changes this phase, `src/` is untouched.
+
+**Full smoke matrix result — 33/33 steps `PASS`, exit code 0, reproducible on a second run:**
+
+| # | Step | Result |
+|---|---|---|
+| 1 | `auth --status` shows `configured: yes` | VERIFIED-LIVE |
+| 2 | `spaces list` includes Antheurus | VERIFIED-LIVE |
+| 3 | `spaces get` returns Antheurus | VERIFIED-LIVE |
+| 4 | `types list --all` includes `task` | VERIFIED-LIVE |
+| 5 | `properties list --all` includes `status` | VERIFIED-LIVE |
+| 6 | `tags list` on `status` includes To Do/In Progress/Done | VERIFIED-LIVE |
+| 7 | `objects create` (task) returns an id | VERIFIED-LIVE |
+| 8 | `objects update` name + markdown | VERIFIED-LIVE |
+| 9 | `objects update --status "To Do"` resolves the tag | VERIFIED-LIVE |
+| 10 | `objects get` shows updated name/markdown/status | VERIFIED-LIVE |
+| 11 | `objects delete` archives | VERIFIED-LIVE |
+| 12 | `objects get` shows `archived: true` | VERIFIED-LIVE |
+| 13 | `files upload` returns `object_id` | VERIFIED-LIVE (unique fixture, see below) |
+| 14 | attach file into a new object's markdown | VERIFIED-LIVE |
+| 15 | `files download` round-trips bytes (sha256 match) | VERIFIED-LIVE |
+| 16 | `files delete` | VERIFIED-LIVE |
+| 17 | cleanup attach object | VERIFIED-LIVE |
+| 18 | `search global` returns a data array | VERIFIED-LIVE |
+| 19 | `search space --types task` + select filter via `--json` | VERIFIED-LIVE |
+| 20 | `objects list --all` pagination (123→124 objects walked) | VERIFIED-LIVE |
+| 21 | `lists views` on "Task tracker" set shows "All" (`6182a74f...`) | VERIFIED-LIVE |
+| 22 | `lists objects` on view "All" (17 objects) | VERIFIED-LIVE |
+| 23 | `lists objects` with omitted `view_id` returns the same 17 | VERIFIED-LIVE |
+| 24 | `lists add` throwaway object to "Journal" collection | VERIFIED-LIVE |
+| 25 | `lists objects` shows it present, then `lists remove` + shows it gone | VERIFIED-LIVE |
+| 26 | `chat list` returns 200 with empty `data: []` | VERIFIED-LIVE |
+| 26b | `chat --follow` SSE under the compiled binary | DEFERRED — no chats exist in the space, nothing to stream (success bar per the phase brief is "endpoint 200s", not SSE) |
+| 27 | `properties create` → `update` → `delete` round-trip | VERIFIED-LIVE |
+| 28 | `types create` → `update` → `delete` round-trip | VERIFIED-LIVE |
+| 29 | `tags create` → `update` round-trip (on a throwaway select property) | VERIFIED-LIVE |
+| 30 | repeat `tags delete` on the same tag | VERIFIED-LIVE (observed: idempotent 200, not 410 — see below) |
+
+**Live-API observations (override the plan's Phase 5 criteria where they conflict, per the
+executor brief's pre-authorized adjustment):**
+
+- **410 is unreachable through any DELETE-twice pattern this session tried.** Phase 4 already
+  found `objects delete` idempotent (200 + `archived: true` again on repeat). This phase
+  independently repeated the same probe on three more resources — `properties delete` twice,
+  `tags delete` twice, and `files delete` twice — and all three came back 200 with the same
+  envelope, never 410. `types delete` twice also came back 200 (first call's response body still
+  showed `archived: false`, i.e. the pre-archive snapshot; the second call's body showed
+  `archived: true`). Reading the vendored spec's `GoneError` placements
+  (`spec/openapi-2025-11-08.yaml`) confirms this isn't a bug: 410 is only declared on `GET`
+  operations (space/object/property/tag/type/template) for the case "resource was permanently
+  purged" or "space was deleted" — this API's `DELETE` is a soft-delete/archive, never a purge,
+  so no exposed endpoint can produce a genuine 410 without actually deleting the whole space
+  (far too destructive to try). The smoke script records this as an explicit live observation
+  and asserts the OBSERVED behavior (repeat `tags delete` → 200, same tag id) rather than a
+  fabricated 410 assertion. The client's 410 status-code mapping itself remains covered by
+  Phase 2's `client.test.ts` (mocked response) — that coverage doesn't change here.
+- **`files delete` on the brief's literal fixture would have destroyed real user data.**
+  `/tmp/anytype-preview/beresin-kk.png` still exists and is a valid PNG, but uploading it returns
+  the **same** `object_id`
+  (`bafyreids6cx2yuc2j3vvckghsip47xqpm5rxz2dtitflhbfptjocx5cfnm`) as a real pre-existing object in
+  the space named "beresin kk" / "ChatGPT Image May 31, 2026..." (confirmed via `objects get` —
+  Anytype dedupes file uploads by content hash). That object predates this session and is real
+  user data, not a smoke-test artifact. The smoke script generates a fresh, content-unique 64×64
+  PNG at runtime instead (via Pillow, `python3`, burned-in timestamp text) so the upload is
+  guaranteed new and safe to delete at cleanup — same multipart/attach/download code path, zero
+  risk to the user's actual file. `beresin kk`, "Task tracker", and "Journal" were all confirmed
+  `archived: false` (untouched) after the smoke run.
+- **`--all` pagination and search filters work as documented.** `objects list --all` walked the
+  full 123–124-object space via `paginateOffset`. `search space` with `--types task` plus a
+  `select` `FilterExpression` passed through `--json` (the registry's flat `bodyParams` don't
+  model `filters`, so this goes through the escape hatch exactly as Phase 4 designed) returned a
+  filtered `data` array — confirms the `--json`-then-typed-flags layering documented in Phase 4
+  works for a real nested oneOf shape, not just in unit tests.
+
+**Deviations from the brief (logged, not asked, since both preserve the brief's intent):**
+1. Uploaded a freshly generated unique PNG instead of the literal `beresin-kk.png` fixture — see
+   the file-dedup observation above. Same multipart code path is exercised either way; the
+   deviation only changes *which bytes* are uploaded, to avoid deleting real user data.
+2. `chat --follow` was not driven this phase — the space has zero chats, so there's nothing to
+   attach an SSE stream to. Creating a throwaway chat purely to test `--follow` was judged out of
+   this phase's "verification only, no features" scope and out of the adjustment note's own
+   framing ("if chats list returns entries, try `--follow`" — implying skip otherwise). Recorded
+   as `DEFERRED`, not silently skipped.
+
+**Honesty buckets:** all 30 matrix rows above that assert against real live post-state are
+`VERIFIED-LIVE` — each was driven against the running Anytype desktop by this executor, output
+inspected, and (for mutations) a follow-up `get`/`list` confirmed the resulting state. `chat
+--follow` under the compiled binary is `DEFERRED` (no data to stream). `bun test` (69/69),
+`bunx tsc --noEmit` (clean), and `bunx biome check` (clean, 0 fixes needed) are
+`SHIPPED-UNVERIFIED` in the narrow sense that they're static/mocked checks, not live-driven — but
+they were re-run after the smoke script existed and stayed green, confirming the smoke script
+addition didn't regress anything.
+
+**Cleanup verification:** after the smoke run, `objects list --all` over the full space (124
+objects) found zero unarchived objects with "smoke" in the name — every throwaway this phase (and
+this phase's earlier interactive exploration before the script existed) ended up archived. No API
+key or bearer token appeared anywhere in the smoke script's own stdout/stderr (`grep -i
+"api.key\|bearer\|authorization"` over a captured run found nothing). The script was run twice
+end-to-end (once directly, once via `just smoke`) with identical 33/33-green results, confirming
+it's safely re-runnable.
+
+Verification: `bun test` 69/69 pass (unchanged from Phase 4 — this phase touched no `src/`
+files), `bunx tsc --noEmit` clean, `bunx biome check` clean (0 fixes), `just build` produces
+`dist/anywrite`, `bash scripts/smoke.sh` and `just smoke` both exit 0 with `33/33 steps passed`.
+
 ## Review findings
 
 (filled at od-finish)

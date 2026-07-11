@@ -13,6 +13,9 @@ test: install
 check: install
     bun run check
 
+smoke: build
+    bash scripts/smoke.sh
+
 codegen: install
     bun run codegen
 
