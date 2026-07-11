@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: cross-compile binaries + publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify before releasing
+        run: |
+          bun run typecheck
+          bun run lint
+          bun run test
+
+      # bun build --compile cross-compiles from a single host — no per-OS runners needed.
+      - name: Cross-compile binaries
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          declare -A TARGETS=(
+            [linux-x64]=bun-linux-x64
+            [linux-arm64]=bun-linux-arm64
+            [darwin-x64]=bun-darwin-x64
+            [darwin-arm64]=bun-darwin-arm64
+            [windows-x64]=bun-windows-x64
+          )
+          for name in "${!TARGETS[@]}"; do
+            target="${TARGETS[$name]}"
+            outfile="release/anywrite-${name}"
+            if [[ "$name" == windows-* ]]; then
+              outfile="${outfile}.exe"
+            fi
+            bun build ./src/cli.ts --compile --target="$target" --outfile="$outfile"
+          done
+          ls -la release
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" release/* \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

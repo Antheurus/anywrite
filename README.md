@@ -1,9 +1,13 @@
 # anywrite
 
+[![CI](https://github.com/Antheurus/anywrite/actions/workflows/ci.yml/badge.svg)](https://github.com/Antheurus/anywrite/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Bun](https://img.shields.io/badge/runtime-bun-fbf0df?logo=bun)](https://bun.sh)
+
 ![anywrite — one CLI for your whole Anytype space](docs/assets/hero.png)
 
 A single compiled CLI for the [Anytype](https://anytype.io) desktop app's local HTTP API —
-**all 52 endpoints** of the [2025-11-08 spec](https://developers.anytype.io/docs/reference/2025-11-08),
+**all 52 endpoints** of the [2025-11-08 spec](https://developers.anytype.io/docs/reference),
 zero runtime dependencies, one binary.
 
 Anytype's official MCP server exposes 52 always-loaded tools to every agent session whether
@@ -26,7 +30,10 @@ actually invoked, and just as usable from a terminal or any other agent/script.
 
 ## Install
 
-Requires [Bun](https://bun.sh) and [`just`](https://github.com/casey/just).
+Grab a prebuilt binary from [Releases](https://github.com/Antheurus/anywrite/releases) (macOS
+arm64/x64, Linux x64/arm64, Windows x64) — no Bun required at runtime, just download and run.
+
+Or build from source. Requires [Bun](https://bun.sh) and [`just`](https://github.com/casey/just).
 
 ```bash
 git clone https://github.com/Antheurus/anywrite.git
@@ -78,6 +85,7 @@ Resources: `spaces`, `objects`, `properties`, `tags`, `types`, `templates`, `lis
 ./dist/anywrite files upload <space> --file ./image.png
 ./dist/anywrite search global --query "task" --types task
 ./dist/anywrite chat messages <space> <chat_id> --all
+./dist/anywrite verify <space> <object_id> --property status="Done" --pretty
 ```
 
 `space`/`type`/`property` positionals accept a name or an id — names are resolved to ids
@@ -130,6 +138,9 @@ No ORM, no runtime npm packages — `fetch`/`FormData`/`ReadableStream` are all 
 platform natives. `src/registry.ts` is the single source of truth for every endpoint's
 method, path, and parameters; `src/client.ts` executes any registry entry against the live
 API; `src/cli.ts` parses argv and dispatches.
+
+Issues and PRs welcome — see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for setup, the pre-PR
+checklist, and where things live.
 
 ## Credit
 
