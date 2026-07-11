@@ -261,6 +261,7 @@ export const ENDPOINTS: Record<string, Record<string, EndpointSpec>> = {
       method: 'GET',
       path: '/v1/spaces/{space_id}/files/{file_id}',
       pathParams: ['space_id', 'file_id'],
+      queryParams: [{ name: 'width', type: 'number' }],
       quirks: ['binary'],
       pagination: 'none',
     },
@@ -268,6 +269,7 @@ export const ENDPOINTS: Record<string, Record<string, EndpointSpec>> = {
       method: 'DELETE',
       path: '/v1/spaces/{space_id}/files/{file_id}',
       pathParams: ['space_id', 'file_id'],
+      queryParams: [{ name: 'skip_bin', type: 'boolean' }],
       pagination: 'none',
     },
   },
@@ -415,6 +417,9 @@ export const ENDPOINTS: Record<string, Record<string, EndpointSpec>> = {
   },
 
   tags: {
+    // The vendored spec omits offset/limit query params for this operation, but the live
+    // API honors them (verified live: pagination envelope reflects the requested offset/limit
+    // and returned items shift between pages).
     list: {
       method: 'GET',
       path: '/v1/spaces/{space_id}/properties/{property_id}/tags',
