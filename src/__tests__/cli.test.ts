@@ -233,4 +233,42 @@ describe('dispatch — request shaping (mocked fetch)', () => {
       restoreApiKey();
     }
   });
+
+  test('--all on a POST paginated endpoint (search.global) re-sends the built body on every page', async () => {
+    const restoreApiKey = stubApiKeyEnv();
+    const seenBodies: string[] = [];
+    const restoreFetch = stubFetch(async (input, init) => {
+      const req = new Request(input as string, init);
+      seenBodies.push(await req.text());
+      return new Response(JSON.stringify({ data: [], pagination: { has_more: false } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    try {
+      await dispatch('search', 'global', ['--all', '--query', 'invoice']);
+      expect(seenBodies.length).toBeGreaterThan(0);
+      for (const body of seenBodies) {
+        expect(body).toContain('"query":"invoice"');
+      }
+    } finally {
+      restoreFetch();
+      restoreApiKey();
+    }
+  });
+
+  test('files upload with a nonexistent --file path is a clean UsageError, not an ENOENT', async () => {
+    const restoreApiKey = stubApiKeyEnv();
+    try {
+      await expect(
+        dispatch('files', 'upload', [
+          'bafyspace',
+          '--file',
+          '/tmp/definitely-missing-anywrite-test.png',
+        ]),
+      ).rejects.toThrow(UsageError);
+    } finally {
+      restoreApiKey();
+    }
+  });
 });

@@ -320,10 +320,14 @@ async function runPaginated(
   path: string,
   query: QueryValues,
   flags: FlagMap,
+  body: Record<string, unknown>,
 ): Promise<void> {
   if (spec.pagination === 'none') {
     throw new UsageError('this endpoint does not paginate — remove --all');
   }
+  // POST/PATCH paginated endpoints (e.g. search.global/search.space) need the filter body
+  // re-sent on every page — same sendsBody rule as the non-paginated dispatch path below.
+  const sendsBody = spec.method === 'POST' || spec.method === 'PATCH';
   if (spec.pagination === 'offset') {
     const limit = typeof query.limit === 'number' ? query.limit : 100;
     const items = await paginateOffset<unknown>(async (offset) => {
@@ -331,6 +335,7 @@ async function runPaginated(
         method: spec.method,
         path,
         query: { ...query, offset, limit },
+        body: sendsBody ? body : undefined,
       });
       if (result.kind !== 'json') {
         throw new Error('expected a JSON response');
@@ -348,6 +353,7 @@ async function runPaginated(
         method: spec.method,
         path,
         query: { ...query, after_order_id: afterOrderId, limit },
+        body: sendsBody ? body : undefined,
       });
       if (result.kind !== 'json') {
         throw new Error('expected a JSON response');
@@ -422,6 +428,9 @@ async function runMultipartUpload(
   const filePath = getFlag(flags, 'file');
   if (filePath === undefined) {
     throw new UsageError('this endpoint uploads a file — pass --file <path>');
+  }
+  if (!existsSync(filePath)) {
+    throw new UsageError(`file not found: ${filePath}`);
   }
   const result = await request(config, {
     method: spec.method,
@@ -633,7 +642,7 @@ export async function dispatch(resource: string, action: string, argv: string[])
   }
 
   if (hasFlag(flags, 'all')) {
-    await runPaginated(config, spec, path, query, flags);
+    await runPaginated(config, spec, path, query, flags, body);
     return;
   }
   if (spec.quirks?.includes('sse')) {
