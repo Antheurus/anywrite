@@ -687,11 +687,40 @@ Phase 1-5 files were touched this phase, per the phase's separation of concerns.
 
 ## Review findings
 
-(filled at od-finish)
+Per-block audits (orchestration-auditor, one per phase) all passed after fix loops:
+- Phase 3 audit: 3 registry encoding gaps — missing `width` (files.download) and `skip_bin`
+  (files.delete) query params; tags.list pagination declared but absent from the vendored spec.
+  Fixed in dfafc3f; the tags.list question was settled by a live probe (API honors offset/limit
+  despite the spec omission — the spec's own prose mentions pagination it never declares).
+- Phase 4 audit: 2 real bugs — `runBinaryDownload` missing `binary: true` (JSON.parse crash on
+  file bytes) and empty-optional-body POST collapsing to no body (400 EOF on no-filter search).
+  Fixed in 48b9149 with regression tests; re-audit live-drove a real 921KB PNG download.
+- Phase 6 audit: leak scan of the public tree caught the private space name in docs/progress.md
+  (scrubbed in 9c3d6e8). Observation left to the user: docs/plan/*.md expose live fixture ids and
+  absolute local paths on the public repo.
+- Cross-phase audit (Opus): NEEDS-FIXES → 2 Important — `--all` never forwarded the request body
+  on paginated POST (filtered search silently returned the whole space) and missing-upload-file
+  produced a raw ENOENT stack trace. Both fixed in 979f605 with regression tests; orchestrator
+  live-verified (filtered --all: 2 vs 100 results; missing file: clean exit 2). Minor items
+  consciously kept: `bodyField`/`wrappedArray` registry metadata (plan-mandated, test-asserted),
+  `.find()` first-match name resolution (no ambiguity warning — deferred).
+- Regression suite at close: 71 bun tests green, tsc/biome clean, 33-step live smoke green across
+  6+ independent runs, post-run cleanup verified (zero orphaned artifacts, real user data untouched).
 
 ## Final status
 
-(pending)
+**COMPLETE — shipped and published.** All 6 phases executed per plan (2 planned parallel in Block 2,
+rest sequential), each block audited with live drives, cross-phase audit resolved to green.
+Delivered: `anywrite` Bun+TS CLI covering 52/52 endpoints of Anytype local API 2025-11-08
+(registry-as-data, one client wrapper, zero runtime deps), compiled binary via `just build`,
+71 unit tests + 33-step live smoke (`just smoke`), Claude Code skill wired at
+`~/.claude/skills/anytype/` (live in-session), public repo https://github.com/Antheurus/anywrite
+(HEAD 979f605 == origin/main, dist/ never in history). Notable deviations from plan, all
+live-derived: 410 is unreachable via DELETE (idempotent soft-archive everywhere — smoke asserts
+observed behavior); uploads dedupe by content hash (fixture swapped to a generated unique PNG to
+avoid archiving real user data); typescript pinned ^5 (TS 7 breaks openapi-typescript codegen).
+Remaining SHIPPED-UNVERIFIED (surfaced, not claimed): full auth challenge flow (needs the desktop
+dialog), chat SSE `--follow` (no chats exist to stream), `skip_bin` permanent delete (destructive).
 
 ---
 Plan confidence: 9/10 | Execution readiness: 8/10 | Risk: medium
