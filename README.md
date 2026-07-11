@@ -116,8 +116,8 @@ The local API itself has no endpoints for these — not a limitation of this CLI
 The repo's [`SKILL.md`](./SKILL.md) doubles as a Claude Code skill. To wire it up:
 
 ```bash
-mkdir -p ~/.claude/skills/anytype
-ln -s /path/to/anywrite/SKILL.md ~/.claude/skills/anytype/SKILL.md
+mkdir -p ~/.claude/skills/anywrite
+ln -s /path/to/anywrite/SKILL.md ~/.claude/skills/anywrite/SKILL.md
 ```
 
 Claude Code loads `SKILL.md` only when a session's context matches its trigger description —

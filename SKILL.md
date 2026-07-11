@@ -1,6 +1,6 @@
 ---
-name: anytype
-description: Use this skill whenever the user mentions Anytype, asks to create/update/search/organize notes, tasks, or PKM objects in Anytype, or wants to upload files, manage properties/tags/types, or chat inside an Anytype space. Also trigger on "anywrite" by name. Covers all 52 endpoints of the Anytype local API (spaces, objects, properties, tags, types, templates, lists, chat, files, members, search, auth) via a single compiled CLI binary — no MCP server, no per-tool context tax.
+name: anywrite
+description: Use this skill whenever the user mentions "anywrite" by name, or mentions Anytype, asks to create/update/search/organize notes, tasks, or PKM objects in Anytype, or wants to upload files, manage properties/tags/types, or chat inside an Anytype space. Covers all 52 endpoints of the Anytype local API (spaces, objects, properties, tags, types, templates, lists, chat, files, members, search, auth) via a single compiled CLI binary — no MCP server, no per-tool context tax.
 ---
 
 # anytype (anywrite CLI)

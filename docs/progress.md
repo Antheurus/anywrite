@@ -1,5 +1,26 @@
 # anywrite Progress
 
+## Session — 2026-07-12 (cont) — v0.2.1 (skill renamed to anywrite)
+
+User preference: the Claude Code skill should be triggered/named `anywrite` (the CLI's own
+name) rather than `anytype` (the app it talks to) — asked directly after the v0.2.0 release
+shipped, having weighed the tradeoff (domain-first vs. tool-first naming) in the prior turn.
+Moved `~/.claude/skills/anytype/` to `~/.claude/skills/anywrite/` (same symlink, now pointing
+at this repo's `SKILL.md` from the new directory), updated the frontmatter `name:` field, and
+reworded the trigger description to lead with "anywrite" while keeping every Anytype-domain
+trigger phrase intact (mentioning notes/tasks/PKM/properties/tags/etc. in Anytype still fires
+it). Updated `README.md`'s wiring instructions and `docs/changelog.md`'s v0.1.0 entry to the
+new path; left `docs/plan/2026-07-11-anywrite-cli/*.md` untouched since those are frozen
+historical planning artifacts, not live documentation. Added a v0.2.1 changelog entry telling
+anyone who wired the skill under the old path how to move it. No `src/` changes — this is a
+skill/doc-only release, version bumped for the path change alone (0.2.0 → 0.2.1).
+
+Verified: `bun run check` clean, `bun test` 84/84 (unchanged, no source touched), skill list
+picked up the rename immediately in the same session (confirmed via the live system-reminder
+showing `anywrite` instead of `anytype` right after the directory move).
+
+---
+
 ## Session — 2026-07-12 — v0.2.0 (verify command)
 
 Added `anywrite verify <space> <object_id...> [--property key=value ...] [--pretty]`, a

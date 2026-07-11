@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.1 — Skill renamed to `anywrite`
+
+- The Claude Code skill directory moved from `~/.claude/skills/anytype` to
+  `~/.claude/skills/anywrite`, matching the CLI's actual name. Trigger by saying "anywrite" or
+  by mentioning Anytype — both still work. If you wired the skill yourself before this release,
+  re-run the install command in the README with the new path (delete the old
+  `~/.claude/skills/anytype` directory first).
+
 ## v0.2.0 — Verify command
 
 - New `anywrite verify <space> <object_id...> --property key=value` command — re-checks that
@@ -14,7 +22,7 @@
   properties, tags, types, templates, lists, files, members, search, and chat, covering every
   operation the Anytype desktop app exposes locally.
 - Ships as one compiled binary (`dist/anywrite`) with nothing else to install.
-- Available as a Claude Code skill (`~/.claude/skills/anytype`) — an agent session picks it up
+- Available as a Claude Code skill (`~/.claude/skills/anywrite`) — an agent session picks it up
   automatically when Anytype comes up in conversation, with no ongoing context cost when it's
   not in use.
 - Reuses an existing Anytype API key from the community `anytype-cli` tool if you already have
