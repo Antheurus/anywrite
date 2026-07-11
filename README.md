@@ -1,5 +1,7 @@
 # anywrite
 
+![anywrite — one CLI for your whole Anytype space](docs/assets/hero.png)
+
 A single compiled CLI for the [Anytype](https://anytype.io) desktop app's local HTTP API —
 **all 52 endpoints** of the [2025-11-08 spec](https://developers.anytype.io/docs/reference/2025-11-08),
 zero runtime dependencies, one binary.
