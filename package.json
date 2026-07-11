@@ -5,6 +5,10 @@
   "type": "module",
   "license": "MIT",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Antheurus/anywrite.git"
+  },
   "bin": {
     "anywrite": "./dist/anywrite"
   },

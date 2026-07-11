@@ -660,6 +660,31 @@ Verification: `bun test` 69/69 pass (unchanged from Phase 4 — this phase touch
 files), `bunx tsc --noEmit` clean, `bunx biome check` clean (0 fixes), `just build` produces
 `dist/anywrite`, `bash scripts/smoke.sh` and `just smoke` both exit 0 with `33/33 steps passed`.
 
+**Phase 6 — Skill + docs + GitHub publish (2026-07-11).** Created `SKILL.md` at the repo root
+(182 lines, under the 300-line budget) — frontmatter with a pushy trigger description covering
+Anytype/anywrite/PKM mentions, absolute binary path, the 12-resource quick-reference command
+matrix, and all 11 gotchas from the brief (three-way body/markdown asymmetry, icon omission,
+select tag name/key/id, file-layout search exclusion, collection-only list mutation, cursor
+chat pagination, omitted view_id, idempotent-archive delete with the 410-unreachable
+observation from Phase 4/5, content-hash upload dedupe, 500-not-404 on unknown ids, and the
+four platform ceilings). Created `README.md` (install via `just build`, auth via the challenge
+flow, usage examples, platform ceilings, MIT license, credit to `anyproto/anytype-api` for the
+vendored spec, skill-wiring instructions). Created `docs/progress.md` (one dense session entry
+covering all six phases in prose, English per the brief — this is a new standalone repo, not
+`mendadak-tools`, so the Bahasa Indonesia rule doesn't apply here) and `docs/changelog.md`
+(v0.1.0 user-facing bullets). Added a `LICENSE` file (MIT, copyright Antheurus) and a
+`repository` field in `package.json` pointing at `github.com/Antheurus/anywrite` — version and
+license were already `0.1.0`/`MIT` from Phase 1, so those weren't re-touched.
+
+Wired `~/.claude/skills/anytype/SKILL.md` as a symlink to the repo's `SKILL.md` (verified the
+directory was absent before creating it, matching the plan's Assumption 3) — `readlink`
+confirms it resolves to the repo path, and `cat` through the symlink returns the real file
+content.
+
+Published the repo: `git add` + one commit for the docs/license/skill-wiring changes, then
+`gh repo create Antheurus/anywrite --public --source . --push`. No `src/`, `scripts/`, or other
+Phase 1-5 files were touched this phase, per the phase's separation of concerns.
+
 ## Review findings
 
 (filled at od-finish)
