@@ -313,6 +313,59 @@ check`/`just test`/`just build` all verified end-to-end through the justfile int
 raw bun commands. `git status` confirms `dist/` and `node_modules/` are gitignored (not
 untracked) ahead of commit.
 
+---
+
+**Phase 2 — HTTP client wrapper (2026-07-11).** Created `src/client.ts`: one `request(config,
+spec)` function that every later phase's registry entries feed as data — it never contains an
+endpoint path itself. Handles headers (`Authorization: Bearer` only when `apiKey` is non-null,
+`Anytype-Version: 2025-11-08` always, optional `Anytype-Heartbeat-Seconds`), JSON body encoding,
+multipart FormData (single field + file + optional filename), binary responses (returns
+`ArrayBuffer` + content-type for the CLI layer to write to a path), and SSE (`async function*
+readSseEvents` parsing `event:`/`data:` blocks off the raw `fetch` body reader — no
+EventSource, no deps, matching the research doc's "keep the stream reader a plain fetch body
+reader" concern). Per-status error mapping via `AnywriteApiError` (extends `Error`, carries
+`status`, a `kind` discriminator mapped from the status table, and the wire `envelope` verbatim
+untouched) — 400→bad_request, 401→unauthorized, 403→forbidden, 404→not_found,
+410→gone, 429→rate_limit, 500→server_error, anything else→unknown. The envelope is kept
+verbatim on the thrown error rather than written to stderr inside client.ts itself: printing is
+`output.ts`/`cli.ts`'s job (Phase 4) so the client stays a pure HTTP layer with no
+process-stream side effects. Added `paginateOffset()` (walks `offset`/`limit` pages via an
+injected `fetchPage(offset)` callback until `pagination.has_more` is false or a page comes back
+empty) and `paginateCursor()` (walks `after_order_id`, taken from the last item of the previous
+page via an injected `getOrderId` extractor, stopping once a page is shorter than `limit` or
+empty) — both are dependency-injected functions decoupled from any concrete endpoint, so Phase
+3/4 supply the closure that calls `request()`.
+
+Modified `src/auth.ts`: added `createChallenge(baseUrl, appName, fetchImpl?)` and
+`createApiKey(baseUrl, challengeId, code, fetchImpl?)`, both unauthenticated (call `request()`
+with `apiKey: null`) but still sending `Anytype-Version` since that flows through `request()`
+unconditionally. Existing `loadConfig`/`saveConfig`/`defaultConfigPaths` from Phase 1 untouched.
+
+Deviation from the brief: `fetchImpl` is typed as a local `FetchLike` (`(input, init?) =>
+Promise<Response>`), not `typeof fetch`. Bun's global `fetch` is declared as a function merged
+with a `namespace fetch { preconnect(...) }`, so `typeof fetch` requires every injected mock to
+also implement `.preconnect` — a Bun-specific quirk unrelated to the HTTP contract. `FetchLike`
+captures the actual call signature used everywhere and keeps test mocks a plain arrow function.
+Also used `Bun.BodyInit` (from `bun-types`) instead of the global `BodyInit`, since this
+project's `tsconfig.json` has no DOM lib and `BodyInit` only exists inside `declare module
+"bun"`.
+
+Verification: `bunx tsc --noEmit` clean, `bunx biome check` clean (one autofix — object/call
+wrapping over the 100-col line width in the new test file). `bun test`: 25/25 pass (5 from
+Phase 1's `auth.test.ts` unaffected + 20 new in `client.test.ts` covering header construction,
+query encoding, all 7 mapped error statuses individually plus a dedicated 410-vs-429-vs-400
+distinctness assertion, an unmapped-status→`unknown` case, binary response bytes + content-type,
+multipart FormData field, SSE event parsing off a `ReadableStream`, and both paginators
+including their empty-page stop conditions). Live check (`bun -e`, using `loadConfig()` against
+the running desktop at `http://localhost:31009`, api key masked in all output): `request()`
+against `GET /v1/spaces` returned the real "Antheurus" space —
+`bafyreigxank2luzvggw7jsnkybpaoipjm3l3g2b3nt2jpm66liype3sd24.kohjowu9reqj` — matching the fixture
+recorded in research.md. Honesty buckets: unit tests are `SHIPPED-UNVERIFIED` promoted to
+`VERIFIED-LIVE` only for the one criterion actually driven against the real API (`GET
+/v1/spaces`); SSE/multipart/binary paths are exercised only against mocked `fetch` in this
+phase, not against a real file upload or a real chat stream — that live coverage is Phase 5's
+smoke matrix.
+
 ## Review findings
 
 (filled at od-finish)

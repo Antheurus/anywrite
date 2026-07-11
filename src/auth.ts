@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { type FetchLike, type RequestResult, request } from './client.ts';
 
 export const DEFAULT_BASE_URL = 'http://localhost:31009';
 
@@ -112,4 +113,46 @@ export function saveConfig(
     base_url: config.baseUrl ?? DEFAULT_BASE_URL,
   };
   writeFileSync(paths.anywriteConfigPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+}
+
+function requireJsonField(result: RequestResult, field: string): unknown {
+  if (result.kind !== 'json') {
+    throw new Error(`auth request expected a JSON response, got ${result.kind}`);
+  }
+  const data = result.data as Record<string, unknown> | null;
+  const value = data?.[field];
+  if (typeof value !== 'string' || !value) {
+    throw new Error(`auth response missing "${field}"`);
+  }
+  return value;
+}
+
+/**
+ * Starts the auth challenge flow: the 4-digit code pops up in the Anytype desktop app.
+ * Unauthenticated (no Bearer) but still sends Anytype-Version, per the spec.
+ */
+export async function createChallenge(
+  baseUrl: string,
+  appName: string,
+  fetchImpl?: FetchLike,
+): Promise<string> {
+  const result = await request(
+    { baseUrl, apiKey: null, fetchImpl },
+    { method: 'POST', path: '/v1/auth/challenges', body: { app_name: appName } },
+  );
+  return requireJsonField(result, 'challenge_id') as string;
+}
+
+/** Exchanges a challenge id + the 4-digit code (from the desktop app) for a long-lived api_key. */
+export async function createApiKey(
+  baseUrl: string,
+  challengeId: string,
+  code: string,
+  fetchImpl?: FetchLike,
+): Promise<string> {
+  const result = await request(
+    { baseUrl, apiKey: null, fetchImpl },
+    { method: 'POST', path: '/v1/auth/api_keys', body: { challenge_id: challengeId, code } },
+  );
+  return requireJsonField(result, 'api_key') as string;
 }
