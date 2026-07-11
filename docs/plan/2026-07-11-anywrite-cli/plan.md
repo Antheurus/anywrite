@@ -414,6 +414,135 @@ this phase is pure data plus a spec-parity test; no live HTTP calls were made or
 registry's real-world correctness (does the CLI actually dispatch through it against the live
 API) is proven in Phase 4/5, not here.
 
+---
+
+**Phase 4 — CLI dispatcher + resolve (2026-07-11).** Created `src/resolve.ts`: name/key -> ID
+resolution against the live API, plus `UsageError` (thrown for anything a caller did wrong —
+unknown resource/action, missing flag, a name that doesn't resolve — printed to stderr and
+exits 2). `looksLikeId()` passes through any value starting with the `bafy` CID prefix
+unresolved; everything else lists the resource (`findSpace`/`findType`/`findProperty`, all
+paginated via `paginateOffset`) and matches by name or key, case-insensitively for name.
+`resolveTagValue()` is deliberately best-effort — it tries a name/key/id match against the
+property's tags but falls back to the raw input unresolved, since the API itself already
+accepts a tag's key or id directly for `select`/`multi_select` (research.md's PropertyLinkWithValue
+section) and a hard failure there would break callers who already have the exact id.
+`interpolatePath()` fills a `{param}` path template with `encodeURIComponent`, shared by
+`cli.ts` for every real request path.
+
+Rewrote `src/cli.ts` (Phase 1's placeholder) into the full dispatcher: a hand-rolled `--flag
+value` / positional argv parser (`parseFlags`, not `node:util`'s `parseArgs` — the flag set is
+generated per resource/action from the registry rather than declared upfront, and a repeatable
+flag like `--filter` needed accumulation `parseArgs`'s API doesn't fit as cleanly), generic
+`buildQuery`/`buildBody` that read flags named directly after each `EndpointSpec`'s
+`queryParams`/`bodyParams` (so "flags come from the registry" holds for every one of the 52
+endpoints with zero endpoint-specific branches), and `resolvePathParams` which walks
+`spec.pathParams` in order, resolving `space_id`/`type_id`/`property_id` through `resolve.ts`
+and passing every other path param (object_id, chat_id, file_id, etc.) straight through — matching
+the brief's stated resolution scope. Quirks (`multipart`/`binary`/`sse`) each got one handler
+(`runMultipartUpload`/`runBinaryDownload`/`runStream`) gated on the matching CLI flag
+(`--file`/`--output`/`--follow`); `--all` dispatches to `paginateOffset` or `paginateCursor`
+per `spec.pagination`, with one small piece of wire-shape handling for chat's cursor
+pagination — its response wraps items under `messages` instead of the standard `data` envelope
+(`ChatMessagesResponse`, confirmed against `api.d.ts`), so the cursor fetcher reads
+`data.data ?? data.messages ?? []`. `--json '<raw>'` seeds the body first (as a plain object),
+then every named flag layers on top — so a typed flag always wins over the escape hatch for the
+same key, letting `--json` carry search filters/sort while `--query`/`--types` stay typed.
+
+Implemented the KNOWN GAP the Phase 3 executor flagged: the registry's `bodyParams` are flat,
+so nested `PropertyLinkWithValue` oneOf shapes (`icon`, `properties[]`) are built entirely in
+`cli.ts`, scoped to `objects create`/`update` only. `buildPropertyEntry()` resolves the target
+property via `findProperty()`, reads its `format`, and shapes the value accordingly (`select`
+and `multi_select` route through `resolveTagValue()`; `number`/`checkbox` cast; everything else
+passes the string through under the matching field name). `--status <value>` is a shortcut that
+calls the same builder against the property keyed/named `status`; `--property key=value` is the
+repeatable generic form; `--icon <emoji>` sets `{format: 'emoji', emoji: <value>}` and is
+omitted from the body entirely when the flag is absent (an empty string 400s per research.md).
+All three merge onto any `properties` array that arrived via `--json` rather than overwriting
+it. Added one flag alias (`--type` -> the registry's `type_key` bodyParam, `objects` resource
+only) so the brief's literal example command (`objects create Antheurus --type task --name X`)
+works verbatim — it's an alias into the same registry-declared field, not a second way to
+express something the registry doesn't already cover.
+
+Extended `src/output.ts` with `printPretty()` (plus an exported `isPlainObject()` cli.ts also
+uses for the `--json`/`--property` value guards): an offset-paginated envelope or bare array
+renders as a padded column table; any single-key wrapper (`{space: {...}}`, `{object: {...}}`,
+`{messages: [...]}`) recursively unwraps to render its inner value; anything else becomes
+key/value lines. This single-key-unwrap heuristic means `--pretty` renders every one of the
+API's wrapped single-object response shapes correctly without hardcoding the wrapper key name
+per resource.
+
+`anywrite auth` is a dedicated subcommand, not generic dispatch — the challenge/code exchange
+needs two sequential calls plus a config write that a single registry flag can't express. It
+always calls `createChallenge()`, then reads `--code` (primary) or falls back to a
+`node:readline/promises` stdin prompt, exchanges it via `createApiKey()`, and writes
+`~/.anywrite/config.json` via the existing `saveConfig()`. `anywrite auth --status` reports
+configured/not, base URL, and which of the three config sources (env / `~/.anywrite/config.json`
+/ `~/.anytype-cli/config.yaml` fallback) is active — re-deriving the precedence order via
+`existsSync` on `auth.ts`'s already-exported `defaultConfigPaths()` rather than modifying
+`auth.ts` (out of this phase's file scope) — and never prints the key itself, matching the
+project's zero-knowledge-on-secrets convention. Help text (`formatTopHelp`/
+`formatResourceHelp`/`formatActionHelp`) is generated entirely from `ENDPOINTS` and each spec's
+`quirks`/`pagination`/`required` — no hand-maintained command list to drift from the registry.
+
+Deviation from the brief (logged, not asked, since it only affects testability): the bottom of
+`cli.ts` used to call `main()` unconditionally, which would have fired on `bun test`'s module
+import too. Guarded it with Bun's `import.meta.main` so `main()` only runs when the file is
+executed directly, and exported the pure helpers (`parseFlags`, `castParamValue`,
+`flagNamesFor`, `buildQuery`, `buildBody`, `formatTopHelp`, `formatResourceHelp`, `RESOURCES`)
+so `cli.test.ts` can exercise arg-parsing and registry-driven flag generation without spawning a
+subprocess or touching the network.
+
+Verification: `bunx tsc --noEmit` clean, `bunx biome check` clean (all fixes were formatter/
+import-order autofixes, no lint rule violations). `bun test`: 65/65 pass (34 pre-existing +
+9 new in `resolve.test.ts`, mocked-fetch, covering id-passthrough / name-match / not-found for
+space+type+property, tag best-effort fallback, and `interpolatePath` + 22 new in `cli.test.ts`
+covering `parseFlags` positional/boolean/repeatable-flag behavior, `castParamValue` per type,
+the `--type` alias, `buildQuery`'s `--filter` passthrough and malformed-filter rejection,
+`buildBody`'s required-field check and `--json`-then-flags layering, and that the generated
+help text actually contains every resource/action/flag). Live (against the running desktop,
+space "Antheurus", api key from the `~/.anytype-cli/config.yaml` fallback, masked in all
+output):
+- `spaces list` and `spaces list --pretty` — both return the real "Antheurus" space; `--pretty`
+  renders a table plus a pagination footer.
+- `objects list Antheurus --limit 3 --pretty` — space name resolved to id, returned the three
+  known fixture objects from research.md ("Test task dengan gambar", "Task tracker", "beresin kk").
+- `objects create Antheurus --type task --name p4-smoke-task` — created via the `--type` alias.
+- `objects update Antheurus <id> --name p4-smoke-task-renamed --status "To Do"` — name changed
+  and the tag name "To Do" resolved to `bafyreien3sgyzjpjw44e5x7v73vk5ncg2ls76n67zq6x4zg7td4eu2dj5y`,
+  matching research.md's recorded fixture exactly; confirmed via a follow-up `objects get`.
+- `objects update Antheurus <id> --markdown "..."` — proved the create/update field-name
+  asymmetry: `--body` on create, `--markdown` on update, both hitting the same underlying content.
+- `objects delete Antheurus <id>` (twice) — archived on the first call; the **second call also
+  returned 200 with `archived: true` again, not a 410** — this API's delete-as-archive is
+  idempotent on repeat, unlike the assumption in this plan's Phase 5 success criteria ("second
+  returns 410 mapped distinctly"). Flagging for Phase 5: a 410 may only occur on a fully-purged
+  object, not a re-archive of an already-archived one — worth re-verifying against a real 410
+  path before writing that assertion into the smoke script. Test object left in the expected
+  end state (archived, not un-archived) — nothing to clean up.
+- `objects get Antheurus <bad-id>` — the API itself returns 500 (not 404) for an unknown id;
+  confirmed the client's `AnywriteApiError` path maps it correctly and the CLI exits 1 with the
+  verbatim envelope on stderr.
+- `anywrite nope list` (unknown resource) and `objects create Antheurus --name X` (missing
+  required `type_key`) both exit 2 with a usage message.
+- `properties list Antheurus --all --limit 5` — walked 11 pages via `paginateOffset`, returned
+  all 52 real properties.
+- `search global --query task --types task`, `spaces get Antheurus --pretty` (single-key unwrap
+  renders the wrapped `{space: {...}}` as flat key/value lines), `lists views Antheurus <set-id>`
+  (5 real views), and `lists objects Antheurus <collection-id>` with the view_id positional
+  **omitted** (viewIdOptional path — returned all 17 objects in the list, matching research.md's
+  live-probed behavior) — all verified against the real desktop.
+- `anywrite --help`, `anywrite objects --help`, `anywrite auth --status` (reports "configured:
+  yes / source: ~/.anytype-cli/config.yaml (fallback)") — all render correctly.
+
+Not live-verified this phase (left for Phase 5's smoke matrix, per the plan): the
+`anywrite auth` challenge/code exchange itself (only `--status` was exercised), `--follow` on
+`chat.stream`, `--output`/`--file` (binary download / multipart upload), `chat.messages --all`
+cursor pagination, and a genuine 410/429 response. Honesty buckets: the live checks listed above
+are `VERIFIED-LIVE` (driven against the real desktop, real post-state observed); the SSE/binary/
+multipart quirk handlers and the auth challenge flow are `SHIPPED-UNVERIFIED` — code compiles
+and type-checks against the client's documented contracts but has not been driven against a real
+stream/file/challenge this phase.
+
 ## Review findings
 
 (filled at od-finish)
