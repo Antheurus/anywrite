@@ -35,9 +35,8 @@ shapes are nested oneOf structures the flat registry doesn't model, so `buildPro
 in `cli.ts` resolves a property's format and shapes the value accordingly, with `--status` as
 a shortcut for the common "status" select property and `--property key=value` as the general
 form. Phase 5 compiled the binary and ran a 33-step live smoke test
-(`scripts/smoke.sh`/`just smoke`) against the user's real running Anytype desktop (space
-"Antheurus") — every step passed, twice, with LIFO cleanup so a mid-run failure still archives
-everything it created.
+(`scripts/smoke.sh`/`just smoke`) against the user's real running Anytype desktop — every step
+passed, twice, with LIFO cleanup so a mid-run failure still archives everything it created.
 
 **Live-API discoveries worth keeping in mind for future changes:** delete is a soft archive
 everywhere and is idempotent — a second delete call on the same object/property/tag/type/file
