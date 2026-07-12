@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.2 — Skill docs: workflows, filter guide, and worked examples
+
+- The skill now includes step-by-step workflow recipes for the common jobs (set up a
+  tracker, find-and-update by property, group into a collection).
+- New reference guides: the complete search filter syntax with verified examples
+  (`references/FILTERS.md`), what markdown survives in object bodies
+  (`references/MARKDOWN.md`), and full worked command sequences
+  (`references/EXAMPLES.md`).
+- Gotchas now show the failing command next to the working one, plus two newly
+  discovered ones: misspelled property flags are silently ignored (use
+  `--property key=value`), and search filters need a tag's id, not its name.
+- If you wired the skill manually, add the new symlink:
+  `ln -s <repo>/references ~/.claude/skills/anywrite/references`.
+
 ## v0.2.1 — Skill renamed to `anywrite`
 
 - The Claude Code skill directory moved from `~/.claude/skills/anytype` to

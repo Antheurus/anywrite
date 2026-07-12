@@ -1,5 +1,30 @@
 # anywrite Progress
 
+## Session — 2026-07-12 (cont) — v0.2.2 (skill upgraded with obsidian-skills patterns)
+
+Analyzed kepano's obsidian-skills repo (github.com/kepano/obsidian-skills, the Obsidian CEO's
+five agent skills) against our SKILL.md and ported six authoring patterns the user approved:
+workflow recipes, a documented filter DSL, `references/` progressive disclosure, body-markdown
+behavior docs, complete worked examples, and wrong→correct gotcha pairs. Extracted the full
+search filter schema from `spec/openapi-2025-11-08.yaml` (SearchRequest → FilterExpression
+recursive and/or tree → 12 typed FilterItem oneOf shapes → 13 FilterCondition values → 4-key
+SortProperty enum) and live-verified every shape against the running desktop with six throwaway
+AWTEST task objects (text contains, checkbox eq, select eq by tag id, date gt date-only, nested
+or-inside-and, sort, empty condition — all archived after). Two new gotchas discovered live:
+(1) unknown flags are silently ignored — `--done true` on create succeeds but sets nothing;
+the only property flags are `--status` and format-aware `--property key=value` (cli.ts
+`applyObjectPropertyFlags`); (2) select filters require the tag ID — a tag name 400s with
+"failed to build expression filters", the one place the CLI's name resolution doesn't reach.
+Also round-tripped a rich markdown document through create→get: everything survives
+semantically but code-fence language tags are dropped, blank lines collapse, lines gain
+trailing spaces, and table cells gain `<br>` — so bodies must never be verified by string
+diff. New files: `references/FILTERS.md`, `references/MARKDOWN.md`, `references/EXAMPLES.md`;
+SKILL.md rewritten (workflows section, `--property` in global flags, gotchas grown 11→15 with
+command pairs, pointers to references). Wired `~/.claude/skills/anywrite/references` as a
+symlink beside the existing SKILL.md one. No `src/` changes — docs/skill only.
+
+---
+
 ## Session — 2026-07-12 (cont) — v0.2.1 (skill renamed to anywrite)
 
 User preference: the Claude Code skill should be triggered/named `anywrite` (the CLI's own

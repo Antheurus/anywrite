@@ -118,6 +118,7 @@ The repo's [`SKILL.md`](./SKILL.md) doubles as a Claude Code skill. To wire it u
 ```bash
 mkdir -p ~/.claude/skills/anywrite
 ln -s /path/to/anywrite/SKILL.md ~/.claude/skills/anywrite/SKILL.md
+ln -s /path/to/anywrite/references ~/.claude/skills/anywrite/references
 ```
 
 Claude Code loads `SKILL.md` only when a session's context matches its trigger description —

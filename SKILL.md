@@ -20,6 +20,16 @@ cd /Users/macbook/Documents/PROJECT_MISPAQUL_ATTORIQ/anywrite && just build
 Call the binary by its absolute path — it is not on `PATH`. Every example below uses the
 bare `anywrite` name for brevity; substitute the absolute path when invoking.
 
+**Deep references (read on demand, not upfront):**
+
+- `references/FILTERS.md` — the full search filter DSL (FilterExpression tree, all 12
+  typed conditions, sort), live-verified examples, and the `--filter` vs `--json` split.
+  Read this before writing any non-trivial `search` call.
+- `references/MARKDOWN.md` — what markdown survives an object body round-trip and what
+  gets mangled. Read before verifying body content or doing get→edit→update cycles.
+- `references/EXAMPLES.md` — complete worked sequences (project tracker from scratch,
+  find-and-update by property, bulk import, file attach) with real response shapes.
+
 ## Auth
 
 Config precedence: `ANYTYPE_API_KEY` env var → `~/.anywrite/config.json` → `~/.anytype-cli/config.yaml`
@@ -56,10 +66,40 @@ Global flags (apply across resources where relevant):
 | `--pretty` | render a table / key-value lines instead of raw JSON |
 | `--output <path>` | write a binary response (files download) to this path |
 | `--follow` | consume an SSE stream (chat stream) and print one JSON line per event |
-| `--json '<raw>'` | merge a raw JSON object into the request body (escape hatch for nested/oneOf shapes like `filters`) |
-| `--filter k[cond]=value` | raw query passthrough, repeatable, e.g. `--filter "done=false"` |
+| `--json '<raw>'` | merge a raw JSON object into the request body (needed for `filters`, `properties[]` beyond the flags below, `lists add`) |
+| `--filter k[cond]=value` | raw URL **query-string** passthrough, repeatable — NOT the search filter body (see references/FILTERS.md) |
+| `--property key=value` | set any object property, repeatable, format-aware (select/multi_select accept tag names) |
 | `--file <path>` | file to upload (files upload) |
 | `--heartbeat <n>` | `Anytype-Heartbeat-Seconds` for an SSE stream (1-60) |
+
+## Workflows
+
+The three recipes that cover most sessions. Full transcripts with response shapes in
+`references/EXAMPLES.md`.
+
+**Create structured content** — property → tags → type → objects → verify:
+```bash
+anywrite properties create <space> --format select --name Stage
+anywrite tags create <space> stage --color yellow --name Backlog
+anywrite types create <space> --layout action --name Ticket --plural_name Tickets
+anywrite objects create <space> --type ticket --name "Wire auth" --property stage=Backlog --body "notes"
+anywrite verify <space> <object_id> --property stage=Backlog --pretty
+```
+
+**Find and update by property** — tag id → filtered search → update → verify:
+```bash
+anywrite tags list <space> stage --pretty                  # filters need the tag ID
+anywrite search space <space> --all --json '{"types":["ticket"],"filters":{"operator":"and","conditions":[{"property_key":"stage","condition":"eq","select":"<tag_id>"}]}}'
+anywrite objects update <space> <hit_id> --property stage=Shipped
+anywrite verify <space> <hit_id> --property stage=Shipped --pretty
+```
+
+**Group into a collection** (collections only — sets are query-driven and read-only):
+```bash
+anywrite objects create <space> --type collection --name "Q3 board"
+anywrite lists add <space> <collection_id> --json '{"objects":["<id1>","<id2>"]}'
+anywrite lists objects <space> <collection_id>
+```
 
 ## Quick reference — 12 resources
 
@@ -114,7 +154,7 @@ anywrite files delete <space> <file_id>               # add --skip_bin for perma
 anywrite members list <space>
 anywrite members get <space> <member_id>
 
-# search
+# search — structured filters/sort go in the --json body; see references/FILTERS.md
 anywrite search global --query "task" --types task
 anywrite search space <space> --query "task" --json '{"types":["task"]}'
 
@@ -169,43 +209,62 @@ reports every outcome.
 
 ## Gotchas (all live-verified against the running Anytype desktop)
 
-1. **Body field is three different names depending on the call.** `objects create` sends
-   `--body`, `objects update` sends `--markdown`, `objects get` returns the content under
-   `markdown` in the response. The CLI already routes the right flag to the right field —
-   don't pass `--markdown` on create or `--body` on update, they're silently ignored.
-2. **Icon: omit it, don't empty it.** Pass `--icon "🔥"` to set an emoji icon; leave the flag
-   off entirely to skip it. An empty string (`--icon ""`) gets rejected with a 400 by the API.
-   The CLI only sends the icon field when the flag is actually present.
-3. **Select/multi-select values accept a tag's name, key, or id.** `--status "Done"` and
-   `--property priority=key_abc123` both work — the CLI resolves a plain name against the
-   property's existing tags first, and falls back to passing the raw value through if no
-   match is found (so an id you already have always works too).
-4. **Search excludes file-layout objects by default.** `file`/`image`/`video`/`audio` type
-   objects are left out of search results unless you explicitly ask for them via
-   `--types file` (or the matching layout type).
-5. **`lists add` / `lists remove` only work on collections, not sets.** Sets are
-   query-driven views (their membership comes from a filter, not a stored list) and are
-   read-only for membership — mutating a set's object list has no endpoint. Collections are
-   the only list type you can add/remove objects from.
-6. **Chat messages paginate by cursor, everything else by offset.** `chat messages --all`
-   walks `before_order_id`/`after_order_id`; every other paginated resource (`objects list`,
-   `properties list`, `search`, etc.) walks `offset`/`limit`. `--all` handles both
+1. **Body field is three different names depending on the call.** The CLI routes the right
+   flag to the right field — but only if you use the right flag per action:
+   ```bash
+   anywrite objects create <space> --body "..."       # WRONG: --markdown (silently ignored)
+   anywrite objects update <space> <id> --markdown "..." # WRONG: --body (silently ignored)
+   anywrite objects get <space> <id>                  # content comes back under "markdown"
+   ```
+2. **Unknown flags are silently ignored — property flags are `--status` and `--property` only.**
+   There is no per-property generated flag; the mistake produces a successful create with the
+   property simply missing:
+   ```bash
+   anywrite objects create <space> --type task --name X --done true      # WRONG: object created, done NOT set
+   anywrite objects create <space> --type task --name X --property done=true   # CORRECT
+   ```
+   `--property key=value` is format-aware: select/multi_select resolve tag names, checkbox
+   takes `true`/`false`, multi-value formats take comma-separated lists.
+3. **Search filters: select needs the tag ID; `--property` takes the name.** Inside a
+   `--json` filter body the API gets raw values — a tag name 400s with
+   `"failed to build expression filters"`. Look the id up with `tags list` first. Full DSL:
+   `references/FILTERS.md`.
+4. **`--filter` is a URL query passthrough, not the search filter body.** Structured search
+   filtering only works via `--json '{"filters": ...}'` on `search space`/`search global`.
+5. **Icon: omit it, don't empty it.**
+   ```bash
+   anywrite objects create <space> --name X --icon ""     # WRONG: 400 from the API
+   anywrite objects create <space> --name X --icon "🔥"   # CORRECT (or omit the flag entirely)
+   ```
+6. **Select/multi-select values (in `--status`/`--property`) accept a tag's name, key, or id.**
+   The CLI resolves a plain name against the property's existing tags first, and passes the
+   raw value through if no match is found — so an id you already have always works too.
+7. **Search excludes file-layout objects by default.** `file`/`image`/`video`/`audio` type
+   objects are left out of search results unless explicitly requested via `--types file`
+   (or the matching layout type).
+8. **`lists add` / `lists remove` only work on collections, not sets.** Sets are
+   query-driven views (membership comes from a filter, not a stored list) and are read-only
+   for membership. Collections are the only list type whose object list can be mutated.
+9. **Chat messages paginate by cursor, everything else by offset.** `--all` handles both
    transparently — you never need to know which one a given resource uses.
-7. **`lists objects` with the view_id omitted returns every object in the list** (not an
-   error), even though the API spec marks `view_id` as a required path segment.
-8. **Delete = soft archive everywhere, and it's idempotent.** `objects delete`,
-   `properties delete`, `tags delete`, `types delete`, `files delete` all archive rather than
-   purge — calling delete twice on the same id returns 200 with `archived: true` both times,
-   never a 410. A 410 only happens on `GET` of a resource that's been permanently purged (not
-   reachable through any DELETE call in this API) or a deleted space.
-9. **File upload dedupes by content hash.** Uploading bytes identical to an existing file
-   returns the *same* `object_id` as the pre-existing object — deleting "your" upload can
-   archive someone else's real file if the content matches. Upload something content-unique
-   when the goal is a disposable test file.
-10. **Unknown ids can return HTTP 500, not 404.** `objects get <space> <bad-id>` (and similar
+10. **`lists objects` with the view_id omitted returns every object in the list** (not an
+    error), even though the API spec marks `view_id` as a required path segment.
+11. **Delete = soft archive everywhere, and it's idempotent.** `objects delete`,
+    `properties delete`, `tags delete`, `types delete`, `files delete` all archive rather than
+    purge — delete twice on the same id returns 200 with `archived: true` both times, never
+    a 410. A 410 only happens on `GET` of a permanently purged resource or a deleted space.
+12. **File upload dedupes by content hash.** Uploading bytes identical to an existing file
+    returns the *same* `object_id` as the pre-existing object — deleting "your" upload can
+    archive someone else's real file if the content matches. Upload something content-unique
+    when the goal is a disposable test file.
+13. **Unknown ids can return HTTP 500, not 404.** `objects get <space> <bad-id>` (and similar
     gets on a non-existent id) comes back as a 500 from the live server. The CLI still exits 1
     and prints the API's error envelope verbatim to stderr either way.
-11. **Platform ceilings — no endpoint exists for these, so the CLI can't do them:**
+14. **Object bodies round-trip semantically, not byte-identically.** Code-fence language tags
+    are dropped, blank lines collapse, lines gain trailing spaces, table cells gain `<br>`.
+    Never string-diff a body to verify a write — check key content instead. Details:
+    `references/MARKDOWN.md`.
+15. **Platform ceilings — no endpoint exists for these, so the CLI can't do them:**
     block-level editing (an object's body is whole-markdown replace only, no per-block ops),
     member invite/role management (members are list/get only), template create/update/delete
     (templates are list/get only), and space deletion.
