@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { existsSync } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, resolve as resolvePath } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import {
   createApiKey,
@@ -9,7 +9,9 @@ import {
   DEFAULT_BASE_URL,
   defaultConfigPaths,
   loadConfig,
+  loadLimitedAppKey,
   saveConfig,
+  saveLimitedAppKey,
 } from './auth.ts';
 import {
   AnywriteApiError,
@@ -19,6 +21,13 @@ import {
   paginateOffset,
   request,
 } from './client.ts';
+import {
+  createGrpcSession,
+  newLimitedChallenge,
+  pasteImageBlock,
+  solveLimitedChallenge,
+  waitForBlockDone,
+} from './grpc.ts';
 import { isPlainObject, printError, printJson, printPretty } from './output.ts';
 import { ENDPOINTS, type EndpointSpec, type ParamSpec, type ParamType } from './registry.ts';
 import {
@@ -465,6 +474,8 @@ export function formatTopHelp(): string {
     ...RESOURCES.map((resource) => `  ${resource}`),
     '  auth               anywrite auth [--code <code>] [--status]',
     '  verify             anywrite verify <space> <object_id...> [--property key=value] [--pretty]',
+    '  grpc-auth          anywrite grpc-auth [--code <code>]  (one-time setup for embed-image)',
+    '  embed-image        anywrite embed-image <space> <object_id> --file <path>',
     '',
     'Run `anywrite <resource> --help` to see actions and flags for a resource.',
     '',
@@ -596,6 +607,114 @@ async function runAuthCommand(argv: string[]): Promise<void> {
   const apiKey = await createApiKey(config.baseUrl, challengeId, code);
   saveConfig({ apiKey, baseUrl: config.baseUrl });
   process.stdout.write('Saved API key to ~/.anywrite/config.json\n');
+}
+
+// -- grpc-auth subcommand ---------------------------------------------------------------------
+//
+// Separate from `auth`: that command's challenge is scoped to "JsonAPI" (the public REST API
+// this CLI otherwise uses everywhere), which is explicitly denied from block-level RPCs like
+// BlockPaste. This command requests "Limited" scope instead — the same scope Anytype's own
+// WebClipper browser extension uses — which is allowed a specific whitelist that includes
+// BlockPaste. Needed once, before the first `embed-image` call; the resulting app key is
+// persistent (like the REST api_key) and stored separately so neither auth flow clobbers the
+// other's saved credential.
+
+function formatGrpcAuthHelp(): string {
+  return [
+    'anywrite grpc-auth [--code <code>] [--app-name <name>]',
+    '',
+    'One-time setup for `embed-image`. Requests a "Limited"-scope app key from Anytype\'s',
+    'internal gRPC middleware (NOT the public REST API) via the same 4-digit-code consent',
+    'flow as `auth` — a code pops up in the Anytype desktop app. Solve it quickly, it expires',
+    'fast (observed: well under a minute).',
+    '  --code <code>       the 4-digit code (skips the interactive stdin prompt)',
+    '  --app-name <name>   label shown in the approval popup (default: anywrite-limited)',
+  ].join('\n');
+}
+
+async function runGrpcAuthCommand(argv: string[]): Promise<void> {
+  const { flags } = parseFlags(argv);
+  if (hasFlag(flags, 'help')) {
+    process.stdout.write(`${formatGrpcAuthHelp()}\n`);
+    return;
+  }
+
+  const appName = getFlag(flags, 'app-name') ?? 'anywrite-limited';
+  const challengeId = await newLimitedChallenge(appName);
+  process.stdout.write(
+    `Challenge created (${challengeId}). Check the Anytype desktop app for a 4-digit code — it expires quickly.\n`,
+  );
+  const code = getFlag(flags, 'code') ?? (await promptForCode());
+  const { appKey } = await solveLimitedChallenge(challengeId, code);
+  saveLimitedAppKey(appKey);
+  process.stdout.write('Saved Limited-scope app key to ~/.anywrite/config.json\n');
+}
+
+// -- embed-image subcommand -------------------------------------------------------------------
+//
+// The public Local JSON API has no endpoint that can put an image inline in an object's body —
+// only Anytype's internal middleware can (see src/grpc.ts for the full story). This command is
+// the CLI-facing wrapper: paste the file as a block, then poll until the upload actually
+// finishes rather than declaring success the instant BlockPaste's initial response comes back
+// (which only means "block created", not "file ingested" — a source file that goes missing
+// mid-upload leaves the block stuck at "Uploading" forever with no error surfaced anywhere else).
+
+function formatEmbedImageHelp(): string {
+  return [
+    'anywrite embed-image <space> <object_id> --file <path> [--timeout <ms>]',
+    '',
+    "Embeds a local image file as a real inline block in an object's body — not a property,",
+    'not a markdown image tag (those are silently dropped, see references/MARKDOWN.md).',
+    'Requires `grpc-auth` to have been run once first.',
+    '  --file <path>      path to the local image file (relative paths resolve from cwd)',
+    '  --timeout <ms>     how long to wait for the upload to finish (default: 15000)',
+  ].join('\n');
+}
+
+async function runEmbedImageCommand(argv: string[]): Promise<void> {
+  const { positionals, flags } = parseFlags(argv);
+  if (hasFlag(flags, 'help')) {
+    process.stdout.write(`${formatEmbedImageHelp()}\n`);
+    return;
+  }
+  const [spaceArg, objectId] = positionals;
+  if (spaceArg === undefined) {
+    throw new UsageError('missing positional argument: space');
+  }
+  if (objectId === undefined) {
+    throw new UsageError('missing positional argument: object_id');
+  }
+  const filePath = getFlag(flags, 'file');
+  if (filePath === undefined) {
+    throw new UsageError('missing required flag: --file <path>');
+  }
+  const absolutePath = resolvePath(filePath);
+  if (!existsSync(absolutePath)) {
+    throw new UsageError(`file not found: ${absolutePath}`);
+  }
+
+  const limitedAppKey = loadLimitedAppKey();
+  if (limitedAppKey === null) {
+    throw new UsageError('no Limited-scope app key configured — run `anywrite grpc-auth` first');
+  }
+
+  const runtimeConfig = loadConfig();
+  if (runtimeConfig.apiKey === null) {
+    throw new UsageError('not authenticated — run `anywrite auth` first');
+  }
+  const restConfig: ClientConfig = { baseUrl: runtimeConfig.baseUrl, apiKey: runtimeConfig.apiKey };
+  const spaceId = await resolveSpaceId(restConfig, spaceArg);
+
+  const timeoutMs = getFlag(flags, 'timeout') ? Number(getFlag(flags, 'timeout')) : undefined;
+
+  const token = await createGrpcSession(limitedAppKey);
+  const blockId = await pasteImageBlock(token, objectId, basename(absolutePath), absolutePath);
+  process.stdout.write(`Block created (${blockId}), waiting for upload to finish...\n`);
+  const finalState = await waitForBlockDone(token, objectId, blockId, timeoutMs);
+  if (finalState.state === 'Error') {
+    throw new Error(`upload failed: ${finalState.error ?? 'unknown error'}`);
+  }
+  emit({ spaceId, objectId, blockId, state: finalState.state }, flags);
 }
 
 // -- verify subcommand ----------------------------------------------------------------------
@@ -741,6 +860,14 @@ async function run(argv: string[]): Promise<void> {
   }
   if (first === 'verify') {
     await runVerifyCommand(rest);
+    return;
+  }
+  if (first === 'grpc-auth') {
+    await runGrpcAuthCommand(rest);
+    return;
+  }
+  if (first === 'embed-image') {
+    await runEmbedImageCommand(rest);
     return;
   }
 

@@ -9,24 +9,42 @@ description: Use this skill whenever the user mentions "anywrite" by name, or me
 HTTP API (`http://localhost:31009` by default). It covers all 52 endpoints of the Anytype
 local API spec 2025-11-08. Anytype desktop must be running for any command to work.
 
-**Binary:** `/Users/macbook/Documents/PROJECT_MISPAQUL_ATTORIQ/anywrite/dist/anywrite`
+It ALSO covers one thing the public API can't do at all: embedding an image as a real inline
+block in an object's body (`embed-image`). That goes through a completely different transport —
+Anytype's internal middleware gRPC service, not the REST API — see "Embedding an image inline"
+under Workflows and the Auth section below before using it.
+
+**Binary:** `<repo>/dist/anywrite`, where `<repo>` is wherever this repo was cloned. Find it
+with `git rev-parse --show-toplevel` if unsure, or check whether `anywrite` is already on
+`PATH`/aliased.
 
 If the binary is missing, build it first:
 
 ```bash
-cd /Users/macbook/Documents/PROJECT_MISPAQUL_ATTORIQ/anywrite && just build
+cd <repo> && just build
 ```
 
-Call the binary by its absolute path — it is not on `PATH`. Every example below uses the
-bare `anywrite` name for brevity; substitute the absolute path when invoking.
+Call the binary by its absolute path unless it's on `PATH`. Every example below uses the
+bare `anywrite` name for brevity; substitute the actual path when invoking if needed.
 
 **Deep references (read on demand, not upfront):**
 
+- `references/spaces.md` (gitignored, machine-local — not shipped with the skill) — an
+  OPTIONAL personal cache of your own Anytype space's shape: its id, key types, the `task`
+  type's properties, your `status`/`tag` options with their ids, and any set like a "Task
+  tracker" you use. Maintaining one avoids re-running `spaces list` / `types list` /
+  `properties list` / `tags list` every session. If this file doesn't exist yet for your
+  space, discover it once via those commands and consider writing your own copy — it's
+  account-specific, so it's never committed to this repo and there's no template shipped
+  with real values (only your own).
 - `references/FILTERS.md` — the full search filter DSL (FilterExpression tree, all 12
   typed conditions, sort), live-verified examples, and the `--filter` vs `--json` split.
   Read this before writing any non-trivial `search` call.
 - `references/MARKDOWN.md` — what markdown survives an object body round-trip and what
-  gets mangled. Read before verifying body content or doing get→edit→update cycles.
+  gets mangled, PLUS why images can never be embedded via markdown/HTML in the body no
+  matter what syntax is tried. Read before verifying body content or doing get→edit→update
+  cycles, or before reaching for `--body`/`--markdown` to try to embed an image (don't —
+  use `embed-image` instead, see Workflows).
 - `references/EXAMPLES.md` — complete worked sequences (project tracker from scratch,
   find-and-update by property, bulk import, file attach) with real response shapes.
 
@@ -43,6 +61,22 @@ anywrite auth --code 1234       # completes the exchange non-interactively, writ
 ```
 
 Never print or log the API key. `auth --status` only ever reports presence and source.
+
+### gRPC auth (needed once, only for `embed-image`)
+
+`auth` above issues a key scoped to `JsonAPI` — explicitly denied from every block-level RPC
+(confirmed live: calling one returns `PermissionDenied: ... not allowed for JsonAPI scope`).
+`embed-image` needs a DIFFERENT, separately-scoped key (`Limited` — the same scope Anytype's
+own WebClipper browser extension uses), obtained through its own one-time challenge flow:
+
+```bash
+anywrite grpc-auth                # same 4-digit-code popup as `auth`, but requests Limited scope
+anywrite grpc-auth --code 1234    # non-interactive
+```
+
+Saves `limited_app_key` into `~/.anywrite/config.json` alongside (never overwriting) `api_key`
+— `embed-image` reads it automatically. **The code expires fast** (observed: well under a
+minute) — have the app open and ready to read the popup before running this.
 
 ## Command shape
 
@@ -74,10 +108,81 @@ Global flags (apply across resources where relevant):
 
 ## Workflows
 
-The three recipes that cover most sessions. Full transcripts with response shapes in
+The recipes that cover most sessions. Full transcripts with response shapes in
 `references/EXAMPLES.md`.
 
-**Create structured content** — property → tags → type → objects → verify:
+**Create a task** (the default recipe — use this whenever the ask is "add this as a task" /
+"track this" / "bikin task", not the more general recipe below). If a personal
+`references/spaces.md`-style cache exists for the target space (see above), read it first —
+no need to run `spaces list` / `types list` / `properties list` / `tags list` to rediscover
+things that don't change session to session. Status `"To Do"` and a project tag are the
+default for every task, not optional extras; if the space has an auto-populated task
+collection (a `set`/Query filtered on the `task` type, sometimes called something like "Task
+tracker"), a new task lands there automatically — nothing needs to be added to it manually
+(don't `lists add` against a `set`, that only works on collections, see Gotcha #8). Attaching
+a screenshot is a routine part of this recipe too, not a rare extra — most real tasks come
+from a screenshot, so step 5 covers it:
+
+```bash
+# 1. the project tag must already exist — create it first if this is a new project, tags
+#    never auto-create on write (Gotcha #16):
+anywrite tags create <space> tag --name "<project-name>" --color <unused-color>
+
+# 2. create the task — type=task + status "To Do" + project tag, every time:
+anywrite objects create <space> --type task \
+  --name "<project-name>: <short title>" \
+  --status "To Do" \
+  --property tag=<project-name> \
+  --body "<description>"
+
+# 3. optional extra tags (multi_select takes comma-separated names, each must already exist):
+anywrite objects create <space> --type task \
+  --name "<project-name>: <short title>" \
+  --status "To Do" \
+  --property tag=<project-name>,<extra-tag-1>,<extra-tag-2> \
+  --body "<description>"
+
+# 4. verify it landed
+anywrite verify <space> <new_id> --property status="To Do" --property tag=<project-name> --pretty
+
+# 5. optional: attach a screenshot/image (this is the ONLY working way to attach an image —
+#    do NOT try embedding `![alt](url)` in --body/--markdown, it is silently stripped on save,
+#    see references/MARKDOWN.md):
+anywrite files upload <space> --file /path/to/screenshot.png
+# -> {"object_id": "<file_id>", ...}
+anywrite objects update <space> <new_id> --json \
+  '{"properties": [{"key": "attachments", "files": ["<file_id>"]}]}'
+```
+
+The attached image shows up in the Anytype app under the object's ⓘ info panel as a file
+property — NOT inline in the note body, and not visible on the main page by default unless
+`attachments` is set as a "featured" property on that type's template. If the actual goal is
+a picture visible directly in the body text, that's a different mechanism entirely — see
+"Embedding an image inline" below.
+
+**Embedding an image inline** (a real picture in the body text, not a property reference) —
+the public REST API genuinely cannot do this (see `references/MARKDOWN.md`); it requires
+`embed-image`, which talks to Anytype's internal middleware instead. One-time setup, then a
+single command per image:
+
+```bash
+# once ever (or again if the key gets revoked) — see "gRPC auth" under Auth above:
+anywrite grpc-auth
+
+# every time after that:
+anywrite embed-image <space> <object_id> --file /path/to/image.png
+```
+
+`embed-image` waits for the upload to actually finish before returning (`state: Done`) rather
+than declaring success the instant the block is created — a source file that goes missing
+before the async upload reads it leaves the block stuck at `state: Uploading` forever with no
+error anywhere else, so this wait is what turns that into a clear, immediate failure instead
+of a silent stuck block discovered later. Passing a file path that might not exist by the time
+the upload runs (e.g. a rotating temp/cache file) is the one way this still fails — pass a
+path to a file that will still exist a few seconds from now.
+
+**Create structured content** (general-purpose — reach for the task recipe above first when
+the object being made really is a task) — property → tags → type → objects → verify:
 ```bash
 anywrite properties create <space> --format select --name Stage
 anywrite tags create <space> stage --color yellow --name Backlog
@@ -183,7 +288,7 @@ expected values. Use it after a batch `objects create`/`objects update` to confi
 actually landed, instead of eyeballing raw JSON or hand-writing a throwaway parsing script.
 
 ```bash
-anywrite verify Antheurus bafyobj1 bafyobj2 --property status="To Do" --pretty
+anywrite verify <space> bafyobj1 bafyobj2 --property status="To Do" --pretty
 ```
 
 Output is a JSON array (or `--pretty` table), one entry per object id:
@@ -268,6 +373,17 @@ reports every outcome.
     block-level editing (an object's body is whole-markdown replace only, no per-block ops),
     member invite/role management (members are list/get only), template create/update/delete
     (templates are list/get only), and space deletion.
+16. **`select`/`multi_select` property values do NOT auto-create a tag on write**, even though
+    `--property key=value` accepts a plain tag name (Gotcha #6). Writing a name with no
+    matching tag 400s instead of creating one:
+    ```bash
+    anywrite objects create <space> --type task --name X --property tag=some-project
+    # -> 400 bad_request: "bad input: invalid multi_select option for \"tag\": some-project"
+    #    (before the "some-project" tag existed)
+    ```
+    Create the tag first with `tags create`, then the same write succeeds. If you maintain a
+    personal `references/spaces.md`-style cache (see above), keep its tag list current so
+    this doesn't need re-discovering.
 
 ## Errors
 

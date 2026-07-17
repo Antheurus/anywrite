@@ -43,7 +43,7 @@ All four keys are optional and combine (query AND types AND filters).
 Live-verified nested example — `name contains "AWTEST" AND (status = "To Do" OR status = "In Progress")`:
 
 ```bash
-anywrite search space Antheurus --json '{
+anywrite search space <space> --json '{
   "filters": {
     "operator": "and",
     "conditions": [

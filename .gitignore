@@ -22,3 +22,7 @@ dist
 # caches
 *.tsbuildinfo
 .biome-cache/
+
+# personal, account-specific Anytype space cache (see SKILL.md) — never shipped, everyone's
+# own space has different ids/tags/types
+references/spaces.md

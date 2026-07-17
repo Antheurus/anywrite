@@ -18,6 +18,10 @@ export interface ConfigPaths {
 interface AnywriteConfigFile {
   api_key?: string;
   base_url?: string;
+  // Persistent app key for Anytype's internal middleware gRPC service, scoped to "Limited" —
+  // separate from api_key (which is scoped to "JsonAPI" and can't call block-level RPCs like
+  // BlockPaste). See src/grpc.ts and the `grpc-auth` CLI command.
+  limited_app_key?: string;
 }
 
 /** Config file locations, resolved from a home directory so tests can inject a temp dir. */
@@ -102,17 +106,41 @@ export function loadConfig(
   return { apiKey: null, baseUrl: DEFAULT_BASE_URL };
 }
 
-/** Writes ~/.anywrite/config.json, creating the directory if needed. Used by the auth flow (Phase 2). */
+/** Writes ~/.anywrite/config.json, creating the directory if needed. Merges onto whatever is
+ * already there so saving one key (e.g. limited_app_key) never clobbers another (e.g. api_key). */
+function writeAnywriteConfigFile(
+  patch: AnywriteConfigFile,
+  paths: ConfigPaths = defaultConfigPaths(),
+): void {
+  mkdirSync(dirname(paths.anywriteConfigPath), { recursive: true });
+  const existing = readAnywriteConfigFile(paths.anywriteConfigPath) ?? {};
+  const payload: AnywriteConfigFile = { ...existing, ...patch };
+  writeFileSync(paths.anywriteConfigPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+}
+
+/** Used by the `auth` command's REST (JsonAPI-scope) challenge flow. */
 export function saveConfig(
   config: { apiKey: string; baseUrl?: string },
   paths: ConfigPaths = defaultConfigPaths(),
 ): void {
-  mkdirSync(dirname(paths.anywriteConfigPath), { recursive: true });
-  const payload: AnywriteConfigFile = {
-    api_key: config.apiKey,
-    base_url: config.baseUrl ?? DEFAULT_BASE_URL,
-  };
-  writeFileSync(paths.anywriteConfigPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+  writeAnywriteConfigFile(
+    { api_key: config.apiKey, base_url: config.baseUrl ?? DEFAULT_BASE_URL },
+    paths,
+  );
+}
+
+/** Used by the `grpc-auth` command's Limited-scope challenge flow (see src/grpc.ts). */
+export function saveLimitedAppKey(
+  limitedAppKey: string,
+  paths: ConfigPaths = defaultConfigPaths(),
+): void {
+  writeAnywriteConfigFile({ limited_app_key: limitedAppKey }, paths);
+}
+
+/** Reads the persistent Limited-scope app key saved by `grpc-auth`, or null if not set. */
+export function loadLimitedAppKey(paths: ConfigPaths = defaultConfigPaths()): string | null {
+  const config = readAnywriteConfigFile(paths.anywriteConfigPath);
+  return config?.limited_app_key ?? null;
 }
 
 function requireJsonField(result: RequestResult, field: string): unknown {
