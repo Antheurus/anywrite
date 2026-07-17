@@ -10,6 +10,13 @@ A single compiled CLI for the [Anytype](https://anytype.io) desktop app's local 
 **all 52 endpoints** of the [2025-11-08 spec](https://developers.anytype.io/docs/reference),
 zero runtime dependencies, one binary.
 
+It also goes beyond that spec: Anytype's desktop app runs its own internal middleware gRPC
+service (the protocol the app itself uses for things like drag-and-drop image embedding),
+completely separate from the documented REST API. `anywrite` talks to that too — see
+[Beyond the REST API](#beyond-the-rest-api) — for the one real thing the public API still
+can't do: putting an image inline in an object's body as a real block, not just a property
+reference.
+
 Anytype's official MCP server exposes 52 always-loaded tools to every agent session whether
 they're used or not. `anywrite` is the alternative: a normal CLI, wired as a
 [Claude Code](https://claude.com/claude-code) skill that costs zero context until it's
@@ -17,8 +24,10 @@ actually invoked, and just as usable from a terminal or any other agent/script.
 
 ## Why
 
-- **Full coverage.** Spaces, objects, properties, tags, types, templates, lists (sets +
-  collections), chat, files, members, search, auth — every operation the local API exposes.
+- **Full coverage, and then some.** Spaces, objects, properties, tags, types, templates,
+  lists (sets + collections), chat, files, members, search, auth — every operation the local
+  REST API exposes, plus one gRPC-only capability (inline image embedding) the REST API
+  doesn't have at all.
 - **One binary, no deps.** Built with `bun build --compile`; ships as a single ~55MB
   executable with nothing to `npm install` at runtime.
 - **Data-driven.** Every endpoint is one entry in an endpoint registry (method, path,
@@ -102,11 +111,35 @@ detailed gotchas list (all live-verified against a real Anytype desktop):
 - file upload dedupes by content hash — re-uploading identical bytes returns the existing
   object's id
 
+## Beyond the REST API
+
+The 52-endpoint local API has no way to embed an image inline in an object's body — only a
+whole-markdown-replace `--body`/`--markdown` (images written there are silently stripped, see
+[`references/MARKDOWN.md`](./references/MARKDOWN.md)) and a separate `attachments` property
+(a file reference, not a picture in the text). Anytype's desktop app itself doesn't share that
+limit — drag-and-drop/paste embedding works fine — because it talks to a completely different,
+undocumented transport: an internal middleware gRPC service (`anytype-heart`'s
+`ClientCommands`), not the REST API.
+
+`anywrite` reaches that service directly for the one operation the REST API can't do:
+
+```bash
+./dist/anywrite grpc-auth                                   # one-time setup — separate 4-digit-code
+                                                              # consent flow, "Limited" scope (same as
+                                                              # Anytype's own WebClipper extension)
+./dist/anywrite embed-image <space> <object_id> --file ./screenshot.png
+```
+
+This is a different transport, a different auth scope, and vendored `.proto` schemas (compiled
+into the binary at build time — see `protos/`) — not something layered on top of the REST
+endpoint registry. See "Embedding an image inline" in [`SKILL.md`](./SKILL.md) for the full
+mechanism and its one real failure mode (a source file that disappears mid-upload).
+
 ## Platform ceilings
 
-The local API itself has no endpoints for these — not a limitation of this CLI:
+The local REST API itself has no endpoints for these — not a limitation of this CLI, and (unlike
+inline image embedding above) there's no known internal-gRPC workaround for them either:
 
-- block-level editing (an object's body is whole-markdown replace only)
 - member invite / role management (members are list/get only)
 - template create / update / delete (templates are list/get only)
 - space deletion
@@ -135,10 +168,13 @@ just smoke      # rebuild + run scripts/smoke.sh against a real running Anytype 
 just codegen    # regenerate src/types/api.d.ts from spec/openapi-2025-11-08.yaml
 ```
 
-No ORM, no runtime npm packages — `fetch`/`FormData`/`ReadableStream` are all Bun/web
-platform natives. `src/registry.ts` is the single source of truth for every endpoint's
-method, path, and parameters; `src/client.ts` executes any registry entry against the live
-API; `src/cli.ts` parses argv and dispatches.
+No ORM. The REST side needs no runtime npm packages at all — `fetch`/`FormData`/
+`ReadableStream` are all Bun/web platform natives; `src/registry.ts` is the single source of
+truth for every endpoint's method, path, and parameters, `src/client.ts` executes any registry
+entry against the live API, `src/cli.ts` parses argv and dispatches. The gRPC side (`src/grpc.ts`,
+see [Beyond the REST API](#beyond-the-rest-api)) does depend on `@grpc/grpc-js` +
+`@grpc/proto-loader` — but only at build time: `bun build --compile` bundles them into the
+binary, so a prebuilt `dist/anywrite` still has nothing to `npm install` at runtime either way.
 
 Issues and PRs welcome — see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for setup, the pre-PR
 checklist, and where things live.
@@ -146,8 +182,15 @@ checklist, and where things live.
 ## Credit
 
 The API spec vendored at `spec/openapi-2025-11-08.yaml` is from
-[anyproto/anytype-api](https://github.com/anyproto/anytype-api) (MIT-licensed upstream). All
-credit for the API design goes to the Anytype team; this repo is an independent CLI client.
+[anyproto/anytype-api](https://github.com/anyproto/anytype-api) (MIT-licensed upstream).
+
+The `.proto` schemas vendored at `protos/anytype-heart/` (used only for `grpc-auth`/
+`embed-image`) are from [anyproto/anytype-heart](https://github.com/anyproto/anytype-heart),
+under the Any Source Available License 1.0 — permitted here as Non-Commercial Use (this repo
+is free and non-commercial); see `protos/anytype-heart/NOTICE.md`.
+
+All credit for the API/protocol design goes to the Anytype team; this repo is an independent
+CLI client.
 
 ## License
 
