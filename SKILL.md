@@ -121,7 +121,26 @@ collection (a `set`/Query filtered on the `task` type, sometimes called somethin
 tracker"), a new task lands there automatically — nothing needs to be added to it manually
 (don't `lists add` against a `set`, that only works on collections, see Gotcha #8). Attaching
 a screenshot is a routine part of this recipe too, not a rare extra — most real tasks come
-from a screenshot, so step 5 covers it:
+from a screenshot, so step 5 covers it.
+
+*Verify before you write it down.* A task written straight from what someone typed is only as
+good as their memory of the bug/fact in that moment — worth writing, but worth more once
+checked. Before filling in the task body, work out which of these three cases applies:
+
+- **It's about a project you actually maintain** (the subject matches one of the known project
+  tags in your `references/SPACES.md` cache — a real local codebase you can open). Go look:
+  grep/read the relevant files, or use whatever code-intelligence tooling is available in the
+  session, and confirm the claim before writing it down. A report like "the save button is
+  missing" often turns out to be a specific root cause a few files deep (a missing flush, a
+  wrong default, a debounce with no cleanup) — finding that first turns the task into something
+  immediately actionable (file:line references, confirmed behavior) instead of a restated guess.
+  If something you were told turns out not to match the code, say so and correct it in the task
+  rather than writing down both the wrong and right version.
+- **It's about something outside your own codebases but still a checkable fact** (a claim about
+  an external tool, service, price, or behavior that a web search could confirm or refute). Do
+  that search first and fold the verified answer into the task.
+- **It's neither** — a personal reminder, an opinion, a preference, a to-do with nothing to
+  verify against any source. Write it as given; there's nothing to check it against.
 
 ```bash
 # 1. the project tag must already exist — create it first if this is a new project, tags
@@ -133,7 +152,7 @@ anywrite objects create <space> --type task \
   --name "<project-name>: <short title>" \
   --status "To Do" \
   --property tag=<project-name> \
-  --body "<description>"
+  --body "<description, informed by whatever you verified above>"
 
 # 3. optional extra tags (multi_select takes comma-separated names, each must already exist):
 anywrite objects create <space> --type task \
@@ -145,9 +164,10 @@ anywrite objects create <space> --type task \
 # 4. verify it landed
 anywrite verify <space> <new_id> --property status="To Do" --property tag=<project-name> --pretty
 
-# 5. optional: attach a screenshot/image (this is the ONLY working way to attach an image —
-#    do NOT try embedding `![alt](url)` in --body/--markdown, it is silently stripped on save,
-#    see references/MARKDOWN.md):
+# 5. attach every screenshot/image that came with the task — not optional, most real tasks
+#    come from a screenshot and a task without its evidence attached is half-filed (this is the
+#    ONLY working way to attach an image — do NOT try embedding `![alt](url)` in
+#    --body/--markdown, it is silently stripped on save, see references/MARKDOWN.md):
 anywrite files upload <space> --file /path/to/screenshot.png
 # -> {"object_id": "<file_id>", ...}
 anywrite objects update <space> <new_id> --json \
@@ -156,9 +176,40 @@ anywrite objects update <space> <new_id> --json \
 
 The attached image shows up in the Anytype app under the object's ⓘ info panel as a file
 property — NOT inline in the note body, and not visible on the main page by default unless
-`attachments` is set as a "featured" property on that type's template. If the actual goal is
-a picture visible directly in the body text, that's a different mechanism entirely — see
-"Embedding an image inline" below.
+`attachments` is set as a "featured" property on that type's template.
+
+Attachment is the floor, not the ceiling — if inline visibility (a picture in the body itself,
+not tucked in a property) matters more for this task, check whether `limited_app_key` is
+already present in `~/.anywrite/config.json` (presence check only — never print or log the
+value: `python3 -c "import json,os;p=os.path.expanduser('~/.anywrite/config.json');print(bool(json.load(open(p)).get('limited_app_key')) if os.path.exists(p) else False)"`).
+If it's there, also run `embed-image` for the most relevant screenshot(s) — see "Embedding an
+image inline" below. If it's not there yet, don't trigger `grpc-auth` as a side effect of
+filing a task: it needs the user to read a popup and type a code within under a minute, which
+is a human-only action, not something to fire off mid-workflow. Attach and move on; mention
+once that inline embedding is available via a one-time `grpc-auth` if they want it later.
+
+**Move a task through its status lifecycle** — a task doesn't stay `"To Do"` forever. Move it
+the moment the user signals a state change, in whatever words they use ("gua kerjain sekarang",
+"lagi dikerjain", "udah beres", "selesai", "done", "mark as done"): starting work means
+`"In Progress"`, finishing means `"Done"`. If you don't already have the task's id from earlier
+in the session, resolve it by name instead of guessing — and if more than one task plausibly
+matches, ask the user which one rather than picking:
+
+```bash
+# resolve the id if you only have a name/description
+anywrite search space <space> --query "<keyword from the task title>" --json '{"types":["task"]}'
+
+# starting work
+anywrite objects update <space> <task_id> --status "In Progress"
+anywrite verify <space> <task_id> --property status="In Progress" --pretty
+
+# finishing
+anywrite objects update <space> <task_id> --status "Done"
+anywrite verify <space> <task_id> --property status="Done" --pretty
+```
+
+`verify` after every status change is what confirms the write actually landed — the same
+reasoning as the create recipe's step 4, not a one-off habit specific to creation.
 
 **Embedding an image inline** (a real picture in the body text, not a property reference) —
 the public REST API genuinely cannot do this (see `references/MARKDOWN.md`); it requires
