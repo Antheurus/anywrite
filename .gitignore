@@ -26,3 +26,9 @@ dist
 # personal, account-specific Anytype space cache (see SKILL.md) — never shipped, everyone's
 # own space has different ids/tags/types
 references/spaces.md
+
+# personal agent notes — never shipped to the public repo
+CLAUDE.local.md
+
+# historical development planning docs — local only, not shipped
+docs/plan/
