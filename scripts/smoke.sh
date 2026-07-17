@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-# Live E2E smoke matrix for the compiled dist/anywrite binary, run against the user's real
-# running Anytype desktop (space "Antheurus"). Every step asserts on real post-state — no mocks.
-# Mutations are separated by a 300ms sleep to stay under the live API's rate limit.
+# Live E2E smoke matrix for the compiled dist/anywrite binary, run against YOUR OWN real
+# running Anytype desktop. Every step asserts on real post-state — no mocks. Mutations are
+# separated by a 300ms sleep to stay under the live API's rate limit.
 #
-# Fixture IDs for "Task tracker" (set) and "Journal" (collection) are pinned below because
-# list_id/view_id path params are not name-resolved by the CLI (only space_id/type_id/
-# property_id are) — see src/resolve.ts. Both were live-verified present before this script
-# was written.
+# Fixture IDs for a "set" (e.g. a task-tracker-style Query) and a "collection" (e.g. a
+# journal-style list) must be pinned via env vars below, because list_id/view_id path params
+# are not name-resolved by the CLI (only space_id/type_id/property_id are) — see
+# src/resolve.ts. These are account-specific — every Anytype space has different ids — so
+# they're required env vars, not hardcoded defaults; see CLAUDE.local.md for how to find and
+# export your own before running this script.
 set -euo pipefail
 
 BIN="${BIN:-./dist/anywrite}"
-SPACE="Antheurus"
-TASK_TRACKER_SET="bafyreihk7746sfimobwrzd3wxql7h6ahgr2u6xeadzy4uvzqliisyytkjq"
-TASK_TRACKER_ALL_VIEW="6182a74fcae0300221f9f207"
-JOURNAL_COLLECTION="bafyreibh2bumsd5horkci7s6ge2elgmtxo4vkh7qhrjqktgh7u6gzioqke"
+SPACE="${SPACE:?set SPACE to your Anytype space name/id — see CLAUDE.local.md}"
+TASK_TRACKER_SET="${TASK_TRACKER_SET:?set TASK_TRACKER_SET to a set/Query object id in your space — see CLAUDE.local.md}"
+TASK_TRACKER_ALL_VIEW="${TASK_TRACKER_ALL_VIEW:?set TASK_TRACKER_ALL_VIEW to a view id on that set — see CLAUDE.local.md}"
+JOURNAL_COLLECTION="${JOURNAL_COLLECTION:?set JOURNAL_COLLECTION to a collection object id in your space — see CLAUDE.local.md}"
 
 WORKDIR="$(mktemp -d)"
 

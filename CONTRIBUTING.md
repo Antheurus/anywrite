@@ -28,6 +28,12 @@ if your change touches request-shaping, pagination, or any endpoint behavior, ru
 against your own Anytype instance before submitting — it's the closest thing to a regression
 suite this project has for live-API behavior.
 
+It needs four env vars pointing at objects in your own space (`SPACE`, `TASK_TRACKER_SET`,
+`TASK_TRACKER_ALL_VIEW`, `JOURNAL_COLLECTION` — the script explains each when unset). These
+are account-specific ids, so there's no shared default: create a `set`/Query object and a
+`collection` object in your own space (via the app or `anywrite objects create`), then export
+their ids before running `just smoke`.
+
 ## Where things live
 
 - `src/registry.ts` — every endpoint as data (method, path, params, quirks). Adding an endpoint
