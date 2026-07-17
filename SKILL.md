@@ -29,7 +29,7 @@ bare `anywrite` name for brevity; substitute the actual path when invoking if ne
 
 **Deep references (read on demand, not upfront):**
 
-- `references/spaces.md` (gitignored, machine-local — not shipped with the skill) — an
+- `references/SPACES.md` (gitignored, machine-local — not shipped with the skill) — an
   OPTIONAL personal cache of your own Anytype space's shape: its id, key types, the `task`
   type's properties, your `status`/`tag` options with their ids, and any set like a "Task
   tracker" you use. Maintaining one avoids re-running `spaces list` / `types list` /
@@ -113,7 +113,7 @@ The recipes that cover most sessions. Full transcripts with response shapes in
 
 **Create a task** (the default recipe — use this whenever the ask is "add this as a task" /
 "track this" / "bikin task", not the more general recipe below). If a personal
-`references/spaces.md`-style cache exists for the target space (see above), read it first —
+`references/SPACES.md`-style cache exists for the target space (see above), read it first —
 no need to run `spaces list` / `types list` / `properties list` / `tags list` to rediscover
 things that don't change session to session. Status `"To Do"` and a project tag are the
 default for every task, not optional extras; if the space has an auto-populated task
@@ -382,7 +382,7 @@ reports every outcome.
     #    (before the "some-project" tag existed)
     ```
     Create the tag first with `tags create`, then the same write succeeds. If you maintain a
-    personal `references/spaces.md`-style cache (see above), keep its tag list current so
+    personal `references/SPACES.md`-style cache (see above), keep its tag list current so
     this doesn't need re-discovering.
 
 ## Errors
