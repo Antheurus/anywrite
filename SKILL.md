@@ -188,12 +188,33 @@ filing a task: it needs the user to read a popup and type a code within under a 
 is a human-only action, not something to fire off mid-workflow. Attach and move on; mention
 once that inline embedding is available via a one-time `grpc-auth` if they want it later.
 
-**Move a task through its status lifecycle** — a task doesn't stay `"To Do"` forever. Move it
-the moment the user signals a state change, in whatever words they use ("gua kerjain sekarang",
-"lagi dikerjain", "udah beres", "selesai", "done", "mark as done"): starting work means
-`"In Progress"`, finishing means `"Done"`. If you don't already have the task's id from earlier
-in the session, resolve it by name instead of guessing — and if more than one task plausibly
-matches, ask the user which one rather than picking:
+**Move a task through its status lifecycle** — the full cycle is `To Do` -> `In Progress` ->
+`Review` -> `Revision` (only if the reviewer finds a problem) -> back to `In Progress` -> `Review`
+-> `Done`. Move it the moment the user signals a state change, in whatever words they use ("gua
+kerjain sekarang", "lagi dikerjain", "udah beres", "selesai", "done", "mark as done", "ada yang
+kurang", "revisi", "balikin"). Starting work (fresh or resumed after a revision) sets
+`"In Progress"`. Finishing the agent's own work sets `"Review"`, never `"Done"` — a review is
+what stands between the agent's own claim of "finished" and a status that says the human already
+checked it. If the user's review finds a problem, the task goes to `"Revision"`, not straight
+back to `"In Progress"` — that status is the record that a review round happened and came back
+with an issue, which `In Progress` alone wouldn't preserve. `"Done"` only ever gets set by the
+user themselves, or by the agent when the user explicitly says so after reviewing (e.g. "oke set
+jadi done") — never from the agent's own judgment that the work looks complete. If the board is
+missing the `"Review"` or `"Revision"` status option for the relevant type, ask the user rather
+than defaulting to `"Done"` or skipping the state.
+
+Status options don't auto-create on write, same as tags (Gotcha #16) — before using `"Revision"`
+for the first time in a space, confirm it exists and create it if not:
+
+```bash
+anywrite properties list <space> --pretty               # find the status property's id
+anywrite tags list <space> status --pretty               # status options are tags on that property
+anywrite tags create <space> status --name "Revision" --color <unused-color>  # if missing
+```
+
+If you don't already have the task's id from earlier in the session, resolve it by name instead
+of guessing — and if more than one task plausibly matches, ask the user which one rather than
+picking:
 
 ```bash
 # resolve the id if you only have a name/description
@@ -203,7 +224,19 @@ anywrite search space <space> --query "<keyword from the task title>" --json '{"
 anywrite objects update <space> <task_id> --status "In Progress"
 anywrite verify <space> <task_id> --property status="In Progress" --pretty
 
-# finishing
+# finishing (agent's own work -> Review, not Done)
+anywrite objects update <space> <task_id> --status "Review"
+anywrite verify <space> <task_id> --property status="Review" --pretty
+
+# user reviewed and found an issue -> Revision, not back to In Progress directly
+anywrite objects update <space> <task_id> --status "Revision"
+anywrite verify <space> <task_id> --property status="Revision" --pretty
+
+# picking the fix back up -> In Progress, then Review again when done (loop repeats)
+anywrite objects update <space> <task_id> --status "In Progress"
+
+# user reviewed, approved, and explicitly asked the agent to close it out -> Done
+# (never set this from the agent's own judgment)
 anywrite objects update <space> <task_id> --status "Done"
 anywrite verify <space> <task_id> --property status="Done" --pretty
 ```
