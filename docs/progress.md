@@ -1,5 +1,28 @@
 # anywrite Progress
 
+## Session — 2026-07-23 — v0.2.3 (mandatory completion evidence before Review)
+
+User flagged a concrete failure pattern from real usage: 7 of the last 10 tasks filed through
+anywrite bounced from "Review" back to "Revision" after human check — a 70% error rate. Root
+cause traced to the skill itself: the status-lifecycle section already forced "Review" (never
+"Done") for the agent's own completion claim, but nothing gated that transition on any actual
+proof of the work — an agent could flip a task to "Review" having verified nothing, and the
+human had to re-derive whether it was really done from scratch every time. Added a new
+requirement in the "Move a task through its status lifecycle" section of SKILL.md: before the
+`objects update ... --status "Review"` call, the agent must attach evidence matched to the task
+type — a screenshot via `/playwright-cli` (`screenshot --filename=...` against the live running
+page) for new/changed pages or UI, real captured test-run output (plus a mermaidJS diagram when
+control flow changed) for new/changed logic, or whatever's genuinely checkable for tasks with
+neither. If no evidence can be produced yet, the task stays "In Progress" instead of moving to
+"Review" bare. Evidence attaches through the same `files upload` + `attachments` property
+mechanism the create-task recipe already uses for input screenshots — no new API surface, just a
+gate on when the status write is allowed to happen. Text evidence (test output) with no natural
+image form gets saved to a file and uploaded rather than pasted as a claimed summary in the
+body, so the human has something they can actually open. Docs-only change: SKILL.md, no `src/`
+changes; `package.json` bumped 0.2.2 → 0.2.3 to match.
+
+---
+
 ## Session — 2026-07-12 (cont) — v0.2.2 (skill upgraded with obsidian-skills patterns)
 
 Analyzed kepano's obsidian-skills repo (github.com/kepano/obsidian-skills, the Obsidian CEO's

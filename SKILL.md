@@ -203,6 +203,42 @@ jadi done") — never from the agent's own judgment that the work looks complete
 missing the `"Review"` or `"Revision"` status option for the relevant type, ask the user rather
 than defaulting to `"Done"` or skipping the state.
 
+**Attach completion evidence before flipping to `"Review"` — mandatory, not optional.** The
+status lifecycle above enforces that only a human sets `"Done"`, but that alone doesn't stop the
+agent from claiming `"Review"`-ready work with nothing to check it against. A task moving to
+`"Review"` with no evidence is just a restated claim of "done", and the human has to re-verify
+from scratch — which is what turns a review into a revision. Before the `objects update ...
+--status "Review"` call, attach evidence that matches what the task actually was:
+
+- **New or changed page/UI** — take a screenshot with `/playwright-cli` (`playwright-cli
+  screenshot --filename=/path/to/evidence.png` against the actual running page, not a mockup)
+  and upload it as an attachment (recipe below).
+- **New or changed logic** — capture the actual test run output (the real pass/fail counts and
+  relevant assertions, never a paraphrase of what should pass) and upload it as evidence; if the
+  change affects control flow, also render a mermaidJS diagram of the new flow (`/mermaid-docx`
+  or any available renderer) and attach that image too.
+- **Neither** (a reminder, a doc-only edit, a config change with nothing to visually or
+  programmatically verify) — attach whatever is actually checkable for that task; don't fabricate
+  evidence for a task that has none to give.
+
+If the relevant evidence genuinely can't be produced yet (the test suite doesn't cover the
+change, the page isn't deployed anywhere reachable), the task stays `"In Progress"` — say so to
+the user rather than flipping to `"Review"` without it.
+
+```bash
+# capture, then attach exactly like the create-task recipe (step 5) does for input screenshots:
+anywrite files upload <space> --file /path/to/evidence.png
+# -> {"object_id": "<file_id>", ...}
+anywrite objects update <space> <task_id> --json \
+  '{"properties": [{"key": "attachments", "files": ["<file_id>"]}]}'
+anywrite objects update <space> <task_id> --status "Review"
+anywrite verify <space> <task_id> --property status="Review" --pretty
+```
+
+For text evidence (test output) that has no natural image form, save it to a file and upload it
+the same way (`files upload --file /path/to/test-output.txt`) rather than pasting a claimed
+summary into the body — the uploaded file is what the human can actually open and check.
+
 Status options don't auto-create on write, same as tags (Gotcha #16) — before using `"Revision"`
 for the first time in a space, confirm it exists and create it if not:
 

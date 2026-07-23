@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.3 — Proof required before a task can go to Review
+
+- Finishing a task now requires attaching real evidence before it can move to "Review" — a
+  screenshot of the actual page for UI work, or captured test output (plus a flow diagram for
+  logic changes) for code work. No evidence yet means the task stays "In Progress" instead of
+  moving to Review empty-handed.
+- This closes the gap that let a task reach "Review" as a bare claim with nothing to check it
+  against, which was producing a high bounce-back rate to "Revision" after human review.
+
 ## v0.2.2 — Skill docs: workflows, filter guide, and worked examples
 
 - The skill now includes step-by-step workflow recipes for the common jobs (set up a
